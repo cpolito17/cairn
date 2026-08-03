@@ -1,0 +1,135 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+/* Self-hosted Geist Sans, served from this app's own origin. One variable file
+   covers 100–900, so there is a single font request for the whole type scale. */
+@font-face {
+  font-family: 'Geist Sans';
+  src: url('/fonts/Geist-Variable.woff2') format('woff2-variations');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Tailwind v4 theme. `inline` emits the var() references straight into the
+   utilities rather than snapshotting their values, so flipping data-theme
+   re-resolves every utility at runtime. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-text: var(--text);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-hairline: var(--hairline);
+  --color-accent: var(--accent);
+  --color-accent-tint: var(--accent-tint);
+  --color-on-accent: var(--on-accent);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-scrim: var(--scrim);
+
+  --font-sans: var(--font-sans);
+
+  --text-hero: var(--text-hero);
+  --text-hero--line-height: var(--text-hero-leading);
+  --text-hero--font-weight: var(--text-hero-weight);
+  --text-hero--letter-spacing: var(--text-hero-tracking);
+
+  --text-board-title: var(--text-board-title);
+  --text-board-title--line-height: var(--text-board-title-leading);
+  --text-board-title--font-weight: var(--text-board-title-weight);
+  --text-board-title--letter-spacing: var(--text-board-title-tracking);
+
+  --text-section: var(--text-section);
+  --text-section--line-height: var(--text-section-leading);
+  --text-section--font-weight: var(--text-section-weight);
+  --text-section--letter-spacing: var(--text-section-tracking);
+
+  --text-row: var(--text-row);
+  --text-row--line-height: var(--text-row-leading);
+  --text-row--font-weight: var(--text-row-weight);
+  --text-row--letter-spacing: var(--text-row-tracking);
+
+  --text-body: var(--text-body);
+  --text-body--line-height: var(--text-body-leading);
+  --text-body--font-weight: var(--text-body-weight);
+  --text-body--letter-spacing: var(--text-body-tracking);
+
+  --text-meta: var(--text-meta);
+  --text-meta--line-height: var(--text-meta-leading);
+  --text-meta--font-weight: var(--text-meta-weight);
+  --text-meta--letter-spacing: var(--text-meta-tracking);
+
+  --spacing-1: var(--space-1);
+  --spacing-2: var(--space-2);
+  --spacing-3: var(--space-3);
+  --spacing-4: var(--space-4);
+  --spacing-5: var(--space-5);
+  --spacing-6: var(--space-6);
+  --spacing-8: var(--space-8);
+  --spacing-10: var(--space-10);
+  --spacing-12: var(--space-12);
+  --spacing-gutter: var(--gutter);
+  --spacing-section: var(--section-rhythm);
+  --spacing-tap: var(--tap-target);
+  --spacing-row: var(--row-height);
+  --spacing-button: var(--button-height);
+
+  --radius-chip: var(--radius-chip);
+  --radius-control: var(--radius-control);
+  --radius-card: var(--radius-card);
+  --radius-sheet: var(--radius-sheet);
+  --radius-pill: var(--radius-pill);
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+}
+
+@layer base {
+  html {
+    background-color: var(--bg);
+    /* iOS Safari is the primary mobile target — dvh, never vh. */
+    min-height: 100dvh;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body-leading);
+    /* §8.3: tabular figures everywhere. Proportional figures are a defect. */
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Theme changes ease rather than snapping (§8.2). */
+  html,
+  body {
+    transition:
+      background-color 200ms ease,
+      color 200ms ease;
+  }
+
+  :focus-visible {
+    outline: var(--focus-ring-width) solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

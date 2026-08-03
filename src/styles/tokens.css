@@ -1,0 +1,131 @@
+/**
+ * Design tokens — PROJECT-SPEC.md §8.2, §8.3, §8.4.
+ *
+ * This is the only file in the project allowed to contain a literal color.
+ * Dark is the default and lives on :root; [data-theme="light"] overrides only
+ * the values that change — the structure is identical between themes.
+ */
+
+:root {
+  /* --- §8.2 color, dark theme (default) --- */
+  --bg: #0b0b0c;
+  --surface: #141416;
+  --surface-2: #1c1c1f;
+  --text: #f2f2f3;
+  --text-secondary: #a0a0a6;
+  --text-tertiary: #6b6b72;
+  --hairline: rgba(255, 255, 255, 0.08);
+  --accent: #ff8a3d;
+  --accent-tint: rgba(255, 138, 61, 0.14);
+  --on-accent: #140a03;
+  --positive: #3fbf7f;
+  --negative: #f0544f;
+  --scrim: rgba(0, 0, 0, 0.5);
+
+  /* Shadows: soft and vertical, never harsh. In dark theme elevation reads
+     primarily as a lighter surface step, so these stay restrained. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.36);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.48);
+
+  /* --- §8.3 typography --- */
+  --font-sans: 'Geist Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* Mobile scale, in rem so user text-size settings are respected. */
+  --text-hero: 2rem; /* 32px — progress percentage / hero figure */
+  --text-hero-weight: 700;
+  --text-hero-tracking: -0.02em;
+  --text-hero-leading: 1.05;
+
+  --text-board-title: 1.375rem; /* 22px */
+  --text-board-title-weight: 700;
+  --text-board-title-tracking: -0.01em;
+  --text-board-title-leading: 1.15;
+
+  --text-section: 0.8125rem; /* 13px, uppercase */
+  --text-section-weight: 600;
+  --text-section-tracking: 0.02em;
+  --text-section-leading: 1.2;
+
+  --text-row: 1rem; /* 16px — task name / row label */
+  --text-row-weight: 500;
+  --text-row-tracking: 0;
+  --text-row-leading: 1.3;
+
+  --text-body: 0.9375rem; /* 15px — body / notes */
+  --text-body-weight: 400;
+  --text-body-tracking: 0;
+  --text-body-leading: 1.5;
+
+  --text-meta: 0.75rem; /* 12px — chips, dates, durations */
+  --text-meta-weight: 500;
+  --text-meta-tracking: 0.01em;
+  --text-meta-leading: 1.35;
+
+  /* --- §8.4 spacing on a 4px grid --- */
+  --space-1: 0.25rem; /* 4px */
+  --space-2: 0.5rem; /* 8px */
+  --space-3: 0.75rem; /* 12px */
+  --space-4: 1rem; /* 16px */
+  --space-5: 1.25rem; /* 20px */
+  --space-6: 1.5rem; /* 24px */
+  --space-8: 2rem; /* 32px */
+  --space-10: 2.5rem; /* 40px */
+  --space-12: 3rem; /* 48px */
+
+  --gutter: var(--space-4); /* 16px mobile screen gutter */
+  --section-rhythm: var(--space-6); /* 24–32px between sections */
+
+  /* --- §8.4 radii --- */
+  --radius-chip: 8px; /* chips and small controls */
+  --radius-control: 12px; /* buttons, task rows, inputs, toasts */
+  --radius-card: 16px; /* board cards */
+  --radius-sheet: 24px; /* sheet top corners */
+  --radius-pill: 9999px; /* primary buttons, pips, progress track */
+
+  /* --- component anatomy --- */
+  --tap-target: 44px; /* accessibility floor */
+  --row-height: 56px; /* task row minimum */
+  --button-height: 48px; /* primary button */
+  --progress-height: 6px;
+  --hairline-width: 1px;
+  --focus-ring-width: 2px;
+
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --surface-2: #f1f1ef;
+  --text: #16161a;
+  --text-secondary: #5c5c63;
+  --text-tertiary: #94949c;
+  --hairline: rgba(0, 0, 0, 0.08);
+  --accent: #d9611c;
+  --accent-tint: rgba(217, 97, 28, 0.1);
+  --on-accent: #ffffff;
+  --positive: #16a34a;
+  --negative: #dc2626;
+  --scrim: rgba(0, 0, 0, 0.4);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.14);
+
+  color-scheme: light;
+}
+
+/* Desktop scales the type up roughly 1.125×. Spacing gutters widen to 24–32px. */
+@media (min-width: 768px) {
+  :root {
+    --text-hero: 2.25rem; /* 36px */
+    --text-board-title: 1.5rem; /* 24px */
+    --text-section: 0.875rem; /* 14px */
+    --text-row: 1.125rem; /* 18px */
+    --text-body: 1.0625rem; /* 17px */
+    --text-meta: 0.8125rem; /* 13px */
+    --gutter: var(--space-8);
+    --section-rhythm: var(--space-8);
+  }
+}
