@@ -18,11 +18,14 @@ and never sent anywhere except from your browser to the login endpoint over TLS.
 
 ## Prerequisites
 
-- Node 20+ and npm.
 - A Cloudflare account with the `charliepolito.com` zone already added.
-- Wrangler authenticated: `npx wrangler login`.
-- The D1 database created and bound (see `wrangler.toml`; created once with
-  `npx wrangler d1 create cairn`).
+- The D1 database created and bound. **Done** — see `DEPLOY.md`.
+- The Worker deployed at least once. A secret can only be attached to a Worker
+  that exists, so the first deploy has to happen before step 2. See `DEPLOY.md`.
+
+The CLI steps below assume Node 20+ and `npx wrangler login`. If you are working
+from a restricted environment without a terminal, use the **dashboard**
+alternative given under each step — the two are equivalent.
 
 ---
 
@@ -38,6 +41,11 @@ To generate one:
 ```bash
 node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
 ```
+
+**Without a terminal:** use your password manager's generator (1Password,
+Bitwarden, and Apple Passwords all do this). Ask for 24+ characters or a
+five-word passphrase. Do not use a browser page that generates passwords
+server-side.
 
 ---
 
@@ -59,6 +67,18 @@ npx wrangler secret list
 
 You should see `AUTH_PASSWORD` in the output.
 
+**Via the dashboard instead:**
+
+1. **Workers & Pages → Overview →** the `cairn` Worker **→ Settings**.
+2. Under **Variables and Secrets**, select **Add**.
+3. Set **Type** to **Secret** — not Text, or the password is stored in the clear
+   and visible in the dashboard afterwards.
+4. **Variable name** `AUTH_PASSWORD`, **Value** the password.
+5. Select **Deploy**.
+
+The secret survives every subsequent deploy; you set it once. It will show in
+the list by name with its value hidden, which is how you confirm it registered.
+
 ---
 
 ## Step 3 — Set the same secret for local development
@@ -73,6 +93,9 @@ AUTH_PASSWORD=your-local-dev-password
 `.dev.vars` is listed in `.gitignore` and must never be committed. It can hold a
 different, weaker password than production — it only guards your local machine.
 
+This step is only for running the app locally. If you never run `wrangler dev`,
+skip it; production reads the secret from step 2.
+
 ---
 
 ## Step 4 — Verify
@@ -82,6 +105,9 @@ Deploy, then check that all three cases behave correctly:
 ```bash
 npx wrangler deploy
 ```
+
+**Without a terminal:** merge to `main` and let Workers Builds deploy, per
+`DEPLOY.md`. The three checks below are browser-only either way.
 
 1. **Wrong password** — visit `https://tasks.charliepolito.com`, enter something
    incorrect. You get an inline error and stay on the login screen.
@@ -104,6 +130,9 @@ configuration failure rather than falling back to any default.
 npx wrangler secret put AUTH_PASSWORD   # enter the new value
 ```
 
+Or from the dashboard: **the Worker → Settings → Variables and Secrets →
+Edit**, change the `AUTH_PASSWORD` value, **Deploy**.
+
 The change takes effect on the next cold start, within seconds.
 
 **Rotation does not sign out existing sessions.** Sessions are rows in D1 and are
@@ -113,6 +142,9 @@ was exposed, also destroy every active session:
 ```bash
 npx wrangler d1 execute cairn --remote --command "DELETE FROM sessions"
 ```
+
+Or from the dashboard: **Workers & Pages → D1 SQL Database → cairn → Console**,
+run `DELETE FROM sessions;`.
 
 Every device is then sent back to the login screen on its next request.
 
@@ -125,4 +157,5 @@ Every device is then sent back to the login screen on its next request.
 | Every login returns a 500 | `AUTH_PASSWORD` not set on the deployed Worker | Step 2, then redeploy |
 | Login works locally but not in production | Secret set in `.dev.vars` only | Step 2 |
 | Logged out on every reload | Cookie rejected — usually a non-HTTPS origin | Use the real hostname, not an IP or `http://` |
-| Locked out after testing | Rate limiter still cooling off | Wait it out, or `DELETE FROM login_attempts` via the D1 command above |
+| Locked out after testing | Rate limiter still cooling off | Wait it out, or `DELETE FROM login_attempts` via the D1 console |
+| Secret set but still 500 | Secret added as **Text**, not **Secret**, or added to the wrong Worker | Check Settings → Variables and Secrets shows `AUTH_PASSWORD` with a hidden value |
