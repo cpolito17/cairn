@@ -89,3 +89,175 @@ export function rowToTask(row: TaskRow): Task {
     updatedAt: row.updated_at,
   };
 }
+
+/* --- queries -------------------------------------------------------------- */
+
+/**
+ * Column order is fixed here rather than `SELECT *` so a future migration that
+ * adds a column cannot silently change what the mappers above receive.
+ */
+const BOARD_COLUMNS =
+  'id, context, name, description, position, archived_at, created_at, updated_at';
+const TASK_COLUMNS =
+  'id, board_id, name, notes, due_date, due_time, duration, difficulty, priority, blocked, ' +
+  'position, created_at, completed_at, updated_at';
+
+/**
+ * Rows sort by position, then by id.
+ *
+ * The id tie-break is the read-time half of the fractional-index contract in
+ * `shared/order.ts`: two devices can mint the same position concurrently, and
+ * when they do, both clients must still agree on which comes first.
+ */
+export async function selectBoards(db: D1Database): Promise<Board[]> {
+  const { results } = await db
+    .prepare(`SELECT ${BOARD_COLUMNS} FROM boards ORDER BY position, id`)
+    .all<BoardRow>();
+  return results.map(rowToBoard);
+}
+
+export async function selectTasks(db: D1Database): Promise<Task[]> {
+  const { results } = await db
+    .prepare(`SELECT ${TASK_COLUMNS} FROM tasks ORDER BY position, id`)
+    .all<TaskRow>();
+  return results.map(rowToTask);
+}
+
+export async function selectBoard(db: D1Database, id: string): Promise<Board | null> {
+  const row = await db
+    .prepare(`SELECT ${BOARD_COLUMNS} FROM boards WHERE id = ?`)
+    .bind(id)
+    .first<BoardRow>();
+  return row ? rowToBoard(row) : null;
+}
+
+export async function selectTask(db: D1Database, id: string): Promise<Task | null> {
+  const row = await db
+    .prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`)
+    .bind(id)
+    .first<TaskRow>();
+  return row ? rowToTask(row) : null;
+}
+
+export interface NewBoard {
+  context: Context;
+  name: string;
+  description: string | null;
+  position: string;
+}
+
+export async function insertBoard(
+  db: D1Database,
+  board: NewBoard,
+  now = Date.now(),
+): Promise<Board> {
+  const id = crypto.randomUUID();
+  const row = await db
+    .prepare(
+      `INSERT INTO boards (id, context, name, description, position, archived_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+       RETURNING ${BOARD_COLUMNS}`,
+    )
+    .bind(id, board.context, board.name, board.description, board.position, now, now)
+    .first<BoardRow>();
+  return rowToBoard(row as BoardRow);
+}
+
+export interface NewTask {
+  boardId: string;
+  name: string;
+  notes: string | null;
+  dueDate: string | null;
+  dueTime: string | null;
+  duration: Duration | null;
+  difficulty: Difficulty | null;
+  priority: boolean;
+  blocked: boolean;
+  position: string;
+}
+
+export async function insertTask(db: D1Database, task: NewTask, now = Date.now()): Promise<Task> {
+  const id = crypto.randomUUID();
+  const row = await db
+    .prepare(
+      `INSERT INTO tasks (id, board_id, name, notes, due_date, due_time, duration, difficulty,
+                          priority, blocked, position, created_at, completed_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+       RETURNING ${TASK_COLUMNS}`,
+    )
+    .bind(
+      id,
+      task.boardId,
+      task.name,
+      task.notes,
+      task.dueDate,
+      task.dueTime,
+      task.duration,
+      task.difficulty,
+      task.priority ? 1 : 0,
+      task.blocked ? 1 : 0,
+      task.position,
+      now,
+      now,
+    )
+    .first<TaskRow>();
+  return rowToTask(row as TaskRow);
+}
+
+/** A column name mapped to the value to write. Empty means "nothing changed". */
+export type ColumnPatch = Record<string, string | number | null>;
+
+async function update<Row>(
+  db: D1Database,
+  table: string,
+  columns: string,
+  id: string,
+  patch: ColumnPatch,
+  now: number,
+): Promise<Row | null> {
+  const assignments = Object.keys(patch).map((column) => `${column} = ?`);
+  assignments.push('updated_at = ?');
+
+  return db
+    .prepare(
+      `UPDATE ${table} SET ${assignments.join(', ')} WHERE id = ? RETURNING ${columns}`,
+    )
+    .bind(...Object.values(patch), now, id)
+    .first<Row>();
+}
+
+/** Returns null when no row has that id, which the route turns into a 404. */
+export async function updateBoard(
+  db: D1Database,
+  id: string,
+  patch: ColumnPatch,
+  now = Date.now(),
+): Promise<Board | null> {
+  const row = await update<BoardRow>(db, 'boards', BOARD_COLUMNS, id, patch, now);
+  return row ? rowToBoard(row) : null;
+}
+
+export async function updateTask(
+  db: D1Database,
+  id: string,
+  patch: ColumnPatch,
+  now = Date.now(),
+): Promise<Task | null> {
+  const row = await update<TaskRow>(db, 'tasks', TASK_COLUMNS, id, patch, now);
+  return row ? rowToTask(row) : null;
+}
+
+/**
+ * Deleting a board takes its tasks with it through the foreign key, which is
+ * why every mutating request calls `enableForeignKeys` first. Returns false
+ * when nothing matched.
+ */
+export async function deleteBoard(db: D1Database, id: string): Promise<boolean> {
+  const result = await db.prepare('DELETE FROM boards WHERE id = ?').bind(id).run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function deleteTask(db: D1Database, id: string): Promise<boolean> {
+  const result = await db.prepare('DELETE FROM tasks WHERE id = ?').bind(id).run();
+  return (result.meta.changes ?? 0) > 0;
+}
