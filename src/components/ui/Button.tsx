@@ -38,6 +38,7 @@ export function Button({
   className = '',
   disabled,
   type = 'button',
+  style,
   ...rest
 }: ButtonProps) {
   const container = variant === 'tertiary';
@@ -56,12 +57,16 @@ export function Button({
         fullWidth ? 'w-full' : '',
         className,
       ].join(' ')}
+      // A caller's `style` is merged rather than spread over the top: the pill's
+      // height and type scale are part of the tier, and a one-off colour must
+      // not silently take them with it.
       style={{
         // Tertiary has no container, so it does not carry the 48px pill height.
         height: container ? 'auto' : 'var(--button-height)',
         minHeight: container ? 'var(--tap-target)' : undefined,
         fontSize: 'var(--text-row)',
         fontWeight: variant === 'primary' ? 600 : 500,
+        ...style,
       }}
       {...rest}
     >

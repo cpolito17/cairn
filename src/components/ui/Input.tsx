@@ -8,7 +8,7 @@
  * rather than one every field re-invents.
  */
 
-import { useId, type InputHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { useId, type InputHTMLAttributes, type Ref, type TextareaHTMLAttributes } from 'react';
 
 const WELL =
   'w-full rounded-control border-0 bg-surface-2 px-4 text-text outline-none ' +
@@ -38,6 +38,8 @@ function Error({ id, children }: { id: string; children: React.ReactNode }) {
 export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'className'> {
   label?: string;
   error?: string | null;
+  /** React 19 passes `ref` as an ordinary prop; it is declared so TS sees it. */
+  ref?: Ref<HTMLInputElement>;
 }
 
 export function Input({ label, error, id, ...rest }: InputProps) {
@@ -65,6 +67,7 @@ export interface TextareaProps
   extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'className'> {
   label?: string;
   error?: string | null;
+  ref?: Ref<HTMLTextAreaElement>;
 }
 
 export function Textarea({ label, error, id, rows = 3, ...rest }: TextareaProps) {
