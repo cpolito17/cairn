@@ -21,9 +21,7 @@ custom_domain = true
 [[d1_databases]]
 binding = "DB"
 database_name = "cairn"
-# Filled in from `wrangler d1 create cairn` before the first remote deploy.
-# Local development and `--local` migrations do not read this value.
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "a05a3c87-c16b-458e-87f8-9c117a28312e"
 migrations_dir = "migrations"
 
 [observability]
