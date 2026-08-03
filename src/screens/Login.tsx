@@ -6,12 +6,14 @@
  * password field, one primary pill. Nothing else — no links, no secondary
  * actions, no marketing. Four states: idle, submitting, error, rate limited.
  *
- * There is no store and no router yet (issue 4), so this screen owns its state
- * and calls `fetch` directly. On success it navigates to the preserved
- * destination, which reboots the app with a live session.
+ * This screen owns its own state — it is the one surface that exists before the
+ * store does — but its request goes through `lib/api.ts` like every other, so
+ * nothing in the app calls `fetch` itself. On success it navigates to the
+ * preserved destination, which reboots the app with a live session.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ApiError, login } from '../lib/api';
 import { takeRedirect } from '../lib/redirect';
 
 /** §8.5 house curve — standard out. Entrances, responses, state changes. */
@@ -96,48 +98,36 @@ export function Login() {
 
     setStatus({ kind: 'submitting' });
 
-    let response: Response;
     try {
-      response = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ password }),
-      });
-    } catch {
-      setStatus({ kind: 'error', message: "Couldn't reach the server. Check your connection." });
-      shake();
-      return;
-    }
-
-    if (response.status === 204) {
+      await login(password);
       window.location.assign(takeRedirect() ?? '/');
       return;
-    }
+    } catch (err) {
+      if (!(err instanceof ApiError)) throw err;
 
-    if (response.status >= 500) {
-      setStatus({ kind: 'error', message: 'Something went wrong on the server.' });
+      if (err.unreachable) {
+        setStatus({ kind: 'error', message: "Couldn't reach the server. Check your connection." });
+        shake();
+        return;
+      }
+
+      if (err.status >= 500) {
+        setStatus({ kind: 'error', message: 'Something went wrong on the server.' });
+        shake();
+        return;
+      }
+
+      // 401. The body distinguishes rate-limited from wrong-password only by
+      // the presence of `retryAfter` — that difference exists for the owner's
+      // benefit and is the only one.
+      setPassword('');
+      if (err.retryAfter !== undefined) {
+        setStatus({ kind: 'rateLimited', secondsLeft: err.retryAfter });
+      } else {
+        setStatus({ kind: 'error', message: 'That password was not accepted.' });
+      }
       shake();
-      return;
     }
-
-    // 401. The body distinguishes rate-limited from wrong-password only by the
-    // presence of `retryAfter` — that difference exists for the owner's benefit
-    // and is the only one.
-    let retryAfter: number | undefined;
-    try {
-      const body = (await response.json()) as { retryAfter?: number };
-      retryAfter = typeof body.retryAfter === 'number' ? body.retryAfter : undefined;
-    } catch {
-      retryAfter = undefined;
-    }
-
-    setPassword('');
-    if (retryAfter !== undefined) {
-      setStatus({ kind: 'rateLimited', secondsLeft: retryAfter });
-    } else {
-      setStatus({ kind: 'error', message: 'That password was not accepted.' });
-    }
-    shake();
   }
 
   const message =
