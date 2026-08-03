@@ -5,10 +5,13 @@ once before the first deploy, and again whenever you rotate the password.
 
 Cairn has no registration flow, no password reset, and no default password. The
 password exists in exactly one place: a Cloudflare Worker secret named
-`AUTH_PASSWORD`. The Worker reads it at cold start, derives a PBKDF2-SHA256 hash
-in memory, and compares every login attempt against that hash with a
-constant-time comparison. The raw password is never written to D1, never logged,
-and never sent anywhere except from your browser to the login endpoint over TLS.
+`AUTH_PASSWORD`. On the first login attempt an isolate handles, the Worker
+derives a PBKDF2-SHA256 digest of the secret (150,000 iterations, fixed
+application salt) and keeps it in memory for that isolate's lifetime. Every
+attempt is hashed with the same parameters and compared against that digest byte
+for byte in constant time — never against the plaintext, and never with an early
+exit. The raw password is never written to D1, never logged, and never sent
+anywhere except from your browser to the login endpoint over TLS.
 
 > **Where the plaintext does live:** the Cloudflare dashboard, as an encrypted
 > secret. Anyone with access to that Cloudflare account can reveal it. This was a
@@ -88,9 +91,13 @@ npx wrangler deploy
 2. **Correct password** — enter the real password. You land on the context home,
    and a `cairn_session` cookie is set (DevTools → Application → Cookies) with
    `HttpOnly`, `Secure`, `SameSite=Lax`, and an expiry roughly 90 days out.
-3. **Rate limiting** — enter a wrong password six times in a row. The sixth
-   response refuses further attempts and states a cooling-off period rather than
-   telling you whether the password was wrong.
+3. **Rate limiting** — enter a wrong password six times in a row. Five
+   consecutive failures from one IP arm the limiter, so the sixth attempt is
+   refused outright and the screen states a 15-minute cooling-off period rather
+   than telling you whether the password was wrong. Both cases are an HTTP 401
+   with the body `{"error":"invalid"}`; the rate-limited one adds `retryAfter`
+   in seconds, and that is the only difference between them. A successful login
+   clears the counter.
 
 If the Worker starts but every login fails with a server error, `AUTH_PASSWORD`
 is almost certainly unset — the Worker treats a missing secret as a hard
@@ -104,7 +111,10 @@ configuration failure rather than falling back to any default.
 npx wrangler secret put AUTH_PASSWORD   # enter the new value
 ```
 
-The change takes effect on the next cold start, within seconds.
+The change takes effect as soon as Cloudflare has propagated the new secret,
+within seconds. A warm isolate does not need to be recycled first: the in-memory
+digest is keyed on the secret's value, so an isolate that sees a changed value
+re-derives rather than answering from the old digest.
 
 **Rotation does not sign out existing sessions.** Sessions are rows in D1 and are
 independent of the password. If you are rotating because you believe the password
@@ -125,4 +135,5 @@ Every device is then sent back to the login screen on its next request.
 | Every login returns a 500 | `AUTH_PASSWORD` not set on the deployed Worker | Step 2, then redeploy |
 | Login works locally but not in production | Secret set in `.dev.vars` only | Step 2 |
 | Logged out on every reload | Cookie rejected — usually a non-HTTPS origin | Use the real hostname, not an IP or `http://` |
-| Locked out after testing | Rate limiter still cooling off | Wait it out, or `DELETE FROM login_attempts` via the D1 command above |
+| Locked out after testing | Rate limiter still cooling off | Wait out the 15 minutes, or `DELETE FROM login_attempts` via the D1 command above |
+| A correct password is refused | The limiter is armed — it is checked before the password is read | Same fix as above |

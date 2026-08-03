@@ -1,25 +1,26 @@
 /**
  * API router.
  *
- * A stub for now: every /api/* path 404s in the shape of `ApiError`. The seven
- * real endpoints arrive with the data layer, and auth wraps them before that.
+ * The three auth paths are open by definition; every other /api/* path goes
+ * through `requireSession` before anything else can look at it. The data
+ * endpoints arrive with the next issue and land behind that gate, not beside it.
  */
 
-import type { ApiError } from '../../shared/types';
+import { requireSession } from '../auth';
 import type { Env } from '../db';
+import { apiError } from '../http';
+import { handleAuth } from './auth';
 
-export function json(body: unknown, init: ResponseInit = {}): Response {
-  return new Response(JSON.stringify(body), {
-    ...init,
-    headers: { 'content-type': 'application/json; charset=utf-8', ...init.headers },
-  });
-}
+export { apiError, json } from '../http';
 
-export function apiError(error: string, status: number, retryAfter?: number): Response {
-  const body: ApiError = retryAfter === undefined ? { error } : { error, retryAfter };
-  return json(body, { status });
-}
+export async function handleApi(request: Request, env: Env): Promise<Response> {
+  const { pathname } = new URL(request.url);
 
-export async function handleApi(_request: Request, _env: Env): Promise<Response> {
+  const auth = handleAuth(request, env, pathname);
+  if (auth) return auth;
+
+  const unauthorized = await requireSession(request, env);
+  if (unauthorized) return unauthorized;
+
   return apiError('Not found', 404);
 }

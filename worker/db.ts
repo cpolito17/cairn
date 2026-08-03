@@ -11,6 +11,12 @@ import type { Board, Context, Difficulty, Duration, Task } from '../shared/types
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  /**
+   * The single password, in plaintext, as a Worker secret. Optional in the type
+   * only because an unset secret is a runtime state the code must handle — see
+   * `worker/auth.ts` and docs/PASSWORD-SETUP.md. There is no default.
+   */
+  AUTH_PASSWORD?: string;
 }
 
 /**
