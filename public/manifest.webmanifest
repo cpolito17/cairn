@@ -1,0 +1,11 @@
+{
+  "name": "cairn",
+  "short_name": "cairn",
+  "description": "Boards and tasks.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B0B0C",
+  "theme_color": "#0B0B0C"
+}

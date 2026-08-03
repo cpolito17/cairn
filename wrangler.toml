@@ -1,0 +1,28 @@
+name = "cairn"
+main = "worker/index.ts"
+compatibility_date = "2026-08-01"
+compatibility_flags = ["nodejs_compat"]
+
+# The built SPA. `run_worker_first` keeps /api/* from being swallowed by the
+# asset router; everything else hits the assets first, and unknown paths fall
+# back to index.html so the client can route them.
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+# The charliepolito.com zone already exists in the Cloudflare account. This
+# declaration is the whole of the DNS work — no records are created by hand.
+[[routes]]
+pattern = "tasks.charliepolito.com"
+custom_domain = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cairn"
+database_id = "a05a3c87-c16b-458e-87f8-9c117a28312e"
+migrations_dir = "migrations"
+
+[observability]
+enabled = true
