@@ -3,7 +3,7 @@ dist/
 .tsbuild/
 *.tsbuildinfo
 
-# Wrangler local state and secrets. .dev.vars holds the password hash in dev.
+# Wrangler local state and secrets. .dev.vars holds the dev AUTH_PASSWORD.
 .wrangler/
 .dev.vars
 .dev.vars.*

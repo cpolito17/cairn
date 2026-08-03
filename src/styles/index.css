@@ -122,8 +122,15 @@
     outline-offset: 2px;
   }
 
+  /* Spinners. Linear easing is legal for these and nowhere else (§8.5). */
+  @keyframes cairn-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    *,
+    *:not([data-motion='essential']),
     *::before,
     *::after {
       animation-duration: 0.01ms !important;
