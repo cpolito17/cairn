@@ -99,7 +99,9 @@ export function Segmented<T extends string>({
                 selected ? 'text-text' : 'text-text-secondary',
               ].join(' ')}
               style={{
-                minHeight: '36px',
+                // The segments are the app's most-used control and sit at the
+                // top of the thumb's reach: 44px is the floor, not a nicety.
+                minHeight: 'var(--tap-target)',
                 fontSize: 'var(--text-meta)',
                 fontWeight: 600,
               }}

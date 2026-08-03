@@ -1,0 +1,75 @@
+/**
+ * Metadata chips and the selectable duration chip. PROJECT-SPEC.md §8.4.
+ *
+ * Two things wear this shape and only one of them is a control, so they are two
+ * components rather than one with a `readOnly` prop:
+ *
+ * - `Chip` is data — 12px text at tertiary or secondary contrast with a small
+ *   leading Phosphor glyph, no container of its own in the task row. It is
+ *   never focusable, because a row's chips are not six extra tab stops.
+ * - `SelectableChip` is the composer's duration control: a real button, 8px
+ *   radius, accent tint when selected, and a ≥44px target.
+ */
+
+import type { ReactNode } from 'react';
+
+export interface ChipProps {
+  /** 16px Phosphor glyph. §8.4 sizes chips' icons at 16. */
+  icon?: ReactNode;
+  /**
+   * §8.4 puts chips "at tertiary or secondary contrast"; secondary is the
+   * default because tertiary on `--bg` measures under 4.5:1 in both themes,
+   * and §8.6 does not exempt 12px text from that floor.
+   */
+  tone?: 'tertiary' | 'secondary' | 'negative' | 'accent';
+  /** Completed rows desaturate their whole chip cluster (§6.5). */
+  muted?: boolean;
+  children?: ReactNode;
+  title?: string;
+  'aria-label'?: string;
+}
+
+const TONES = {
+  tertiary: 'text-text-tertiary',
+  secondary: 'text-text-secondary',
+  negative: 'text-negative',
+  accent: 'text-accent',
+} as const;
+
+export function Chip({ icon, tone = 'secondary', muted = false, children, ...rest }: ChipProps) {
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 text-meta ${TONES[tone]}`}
+      style={muted ? { opacity: 0.55 } : undefined}
+      {...rest}
+    >
+      {icon}
+      {children}
+    </span>
+  );
+}
+
+export interface SelectableChipProps {
+  selected: boolean;
+  onClick(): void;
+  children: ReactNode;
+  'aria-label'?: string;
+}
+
+export function SelectableChip({ selected, onClick, children, ...rest }: SelectableChipProps) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onClick}
+      className={[
+        'pressable inline-flex items-center justify-center rounded-chip px-3 text-meta',
+        selected ? 'bg-accent-tint text-accent' : 'bg-surface-2 text-text-secondary',
+      ].join(' ')}
+      style={{ minHeight: 'var(--tap-target)', fontWeight: 600 }}
+      {...rest}
+    >
+      {children}
+    </button>
+  );
+}

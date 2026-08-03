@@ -169,6 +169,27 @@
     transform: scale(0.97);
   }
 
+  /* §8.5: every hover effect is gated — a touch device false-positives hover
+     on tap, and a row that stays "hovered" after a tap is the tell. */
+  @media (hover: hover) and (pointer: fine) {
+    .hoverable:hover {
+      background-color: color-mix(in srgb, var(--text) 4%, transparent);
+    }
+  }
+
+  /* Up Next bleeds off the right edge to signal scrollability (§6.7); the
+     scrollbar itself would draw a line under the cards and undo that. */
+  .edge-scroll {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+  }
+
+  .edge-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
   /* §9.2: translucent header over scrolling content. */
   .app-header {
     background-color: color-mix(in srgb, var(--surface) 72%, transparent);

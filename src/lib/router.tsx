@@ -66,14 +66,53 @@ if (typeof window !== 'undefined') {
   window.addEventListener('popstate', notify);
 }
 
+/**
+ * State carried across one navigation.
+ *
+ * Only Up Next uses it: tapping an entry pushes to that board and briefly
+ * highlights the row (§6.7). The id rides in the history entry rather than in a
+ * module variable so a hard reload of the board — a real navigation the app did
+ * not make — simply has no state and highlights nothing, which is right.
+ */
+export interface NavState {
+  highlightTaskId?: string;
+}
+
 /** Navigate within the app. `replace` swaps the entry instead of adding one. */
-export function navigate(path: string, options: { replace?: boolean } = {}): void {
-  if (path === window.location.pathname) return;
-  if (options.replace) window.history.replaceState(null, '', path);
-  else window.history.pushState(null, '', path);
+export function navigate(
+  path: string,
+  options: { replace?: boolean; state?: NavState } = {},
+): void {
+  const state = options.state ?? null;
+  if (path === window.location.pathname) {
+    // Same path, new intent: the destination screen still has to see the
+    // state, and a no-op return would swallow it.
+    if (state) {
+      window.history.replaceState(state, '', path);
+      notify();
+    }
+    return;
+  }
+  if (options.replace) window.history.replaceState(state, '', path);
+  else window.history.pushState(state, '', path);
   // A new page starts at the top; the browser only does this for real loads.
   window.scrollTo(0, 0);
   notify();
+}
+
+/**
+ * Read the state of the current history entry once, clearing it.
+ *
+ * Clearing matters: without it, every re-render of the board screen — and a
+ * later back-navigation onto the same entry — would re-fire the highlight for a
+ * task the user has long since dealt with.
+ */
+export function consumeNavState(): NavState | null {
+  if (typeof window === 'undefined') return null;
+  const state = window.history.state as NavState | null;
+  if (!state || typeof state !== 'object') return null;
+  window.history.replaceState(null, '', window.location.pathname);
+  return state;
 }
 
 export function useRoute(): Route {
