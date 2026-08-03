@@ -1,0 +1,239 @@
+/**
+ * The API client. One typed function per endpoint from issue 3, and the only
+ * module in the app that calls `fetch`.
+ *
+ * Two things are centralized here because they are wrong everywhere else:
+ *
+ * **401 is terminal.** Any call that comes back 401 means the session is gone,
+ * and no amount of retrying will bring it back. The first such response fires
+ * one global "session lost" event — once, not once per in-flight request — and
+ * every caller sees a rejected promise. The app clears its state, records where
+ * the user was, and drops to the login screen. Login and session probing are
+ * deliberately exempt: a 401 from `POST /api/login` is a wrong password, not a
+ * lost session.
+ *
+ * **A transport failure looks like an API failure.** An offline `fetch` rejects
+ * with a `TypeError`; a 500 resolves. Callers should not have to care, so both
+ * arrive as `ApiError` and the offline case gets `status: 0`.
+ */
+
+import type { AppState, Board, Context, Difficulty, Duration, Task } from '../../shared/types';
+
+export class ApiError extends Error {
+  /** HTTP status, or 0 when the request never reached the server. */
+  readonly status: number;
+  /** Seconds to wait, when the server sent one. */
+  readonly retryAfter: number | undefined;
+
+  constructor(message: string, status: number, retryAfter?: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.retryAfter = retryAfter;
+  }
+
+  /** True when the request never made it out — offline, DNS, blocked. */
+  get unreachable(): boolean {
+    return this.status === 0;
+  }
+}
+
+/* --- session-lost signal --------------------------------------------------- */
+
+type SessionLostListener = () => void;
+
+const sessionLostListeners = new Set<SessionLostListener>();
+let sessionLost = false;
+
+/**
+ * Subscribe to the forced-logout signal. Returns an unsubscribe.
+ *
+ * The app registers exactly one of these; it is an event rather than a direct
+ * call into the store so this module stays free of any dependency on it.
+ */
+export function onSessionLost(listener: SessionLostListener): () => void {
+  sessionLostListeners.add(listener);
+  return () => sessionLostListeners.delete(listener);
+}
+
+/**
+ * Re-arm the signal after a successful login. Without this a second forced
+ * logout in the same document would be swallowed by the latch below.
+ */
+export function armSessionLost(): void {
+  sessionLost = false;
+}
+
+function fireSessionLost(): void {
+  // Latched: three parallel requests failing together are one lost session.
+  if (sessionLost) return;
+  sessionLost = true;
+  for (const listener of sessionLostListeners) listener();
+}
+
+/* --- transport ------------------------------------------------------------- */
+
+interface CallOptions {
+  method?: string;
+  body?: unknown;
+  /** Set for the auth endpoints, whose 401 is an answer rather than an outage. */
+  ownsUnauthorized?: boolean;
+}
+
+async function call(path: string, options: CallOptions = {}): Promise<Response> {
+  const { method = 'GET', body, ownsUnauthorized = false } = options;
+
+  const init: RequestInit = {
+    method,
+    // Same-origin: the Worker serves the SPA and the API from one origin, so
+    // the session cookie rides along without CORS ever entering the picture.
+    credentials: 'same-origin',
+  };
+  if (body !== undefined) {
+    init.headers = { 'content-type': 'application/json' };
+    init.body = JSON.stringify(body);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(path, init);
+  } catch {
+    throw new ApiError('Network unavailable', 0);
+  }
+
+  if (response.status === 401 && !ownsUnauthorized) {
+    fireSessionLost();
+    throw new ApiError('Session expired', 401);
+  }
+
+  if (!response.ok) {
+    const { error, retryAfter } = await readError(response);
+    throw new ApiError(error, response.status, retryAfter);
+  }
+
+  return response;
+}
+
+async function readError(
+  response: Response,
+): Promise<{ error: string; retryAfter: number | undefined }> {
+  try {
+    const body = (await response.json()) as { error?: unknown; retryAfter?: unknown };
+    return {
+      error: typeof body.error === 'string' ? body.error : `Request failed (${response.status})`,
+      retryAfter: typeof body.retryAfter === 'number' ? body.retryAfter : undefined,
+    };
+  } catch {
+    return { error: `Request failed (${response.status})`, retryAfter: undefined };
+  }
+}
+
+async function callJson<T>(path: string, options: CallOptions = {}): Promise<T> {
+  const response = await call(path, options);
+  return (await response.json()) as T;
+}
+
+/* --- auth ------------------------------------------------------------------ */
+
+/** True when a live session exists. Its 401 is an answer, not a lost session. */
+export async function getSession(): Promise<boolean> {
+  try {
+    await call('/api/session', { ownsUnauthorized: true });
+    return true;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) return false;
+    throw err;
+  }
+}
+
+/**
+ * Unlock. Resolves on success; rejects with an `ApiError` carrying 401 for a
+ * refused password, and `retryAfter` when the limiter is engaged (§6.1).
+ */
+export async function login(password: string): Promise<void> {
+  await call('/api/login', { method: 'POST', body: { password }, ownsUnauthorized: true });
+  armSessionLost();
+}
+
+/** Idempotent server-side; a failure here still drops the client to login. */
+export async function logout(): Promise<void> {
+  await call('/api/logout', { method: 'POST', ownsUnauthorized: true });
+}
+
+/* --- state ----------------------------------------------------------------- */
+
+/** The whole world in one round trip. The app's only read. */
+export function getState(): Promise<AppState> {
+  return callJson<AppState>('/api/state');
+}
+
+/* --- boards ---------------------------------------------------------------- */
+
+export interface BoardDraft {
+  context: Context;
+  name: string;
+  description?: string | null;
+  position: string;
+}
+
+export interface BoardPatch {
+  name?: string;
+  description?: string | null;
+  position?: string;
+  /** The wire says `archived: true`; the server records when. */
+  archived?: boolean;
+}
+
+export function createBoard(draft: BoardDraft): Promise<Board> {
+  return callJson<Board>('/api/boards', { method: 'POST', body: draft });
+}
+
+export function updateBoard(id: string, patch: BoardPatch): Promise<Board> {
+  return callJson<Board>(`/api/boards/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch });
+}
+
+export async function deleteBoard(id: string): Promise<void> {
+  await call(`/api/boards/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/* --- tasks ----------------------------------------------------------------- */
+
+export interface TaskDraft {
+  boardId: string;
+  name: string;
+  notes?: string | null;
+  dueDate?: string | null;
+  dueTime?: string | null;
+  duration?: Duration | null;
+  difficulty?: Difficulty | null;
+  priority?: boolean;
+  blocked?: boolean;
+  position: string;
+}
+
+export interface TaskPatch {
+  name?: string;
+  notes?: string | null;
+  dueDate?: string | null;
+  dueTime?: string | null;
+  duration?: Duration | null;
+  difficulty?: Difficulty | null;
+  priority?: boolean;
+  blocked?: boolean;
+  position?: string;
+  boardId?: string;
+  /** The client never sends a timestamp — the server clocks completion (§6.5). */
+  completed?: boolean;
+}
+
+export function createTask(draft: TaskDraft): Promise<Task> {
+  return callJson<Task>('/api/tasks', { method: 'POST', body: draft });
+}
+
+export function updateTask(id: string, patch: TaskPatch): Promise<Task> {
+  return callJson<Task>(`/api/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch });
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  await call(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
