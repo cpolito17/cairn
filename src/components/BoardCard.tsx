@@ -21,11 +21,12 @@
  * links; the check-off buttons are their siblings.
  */
 
-import { Check } from '@phosphor-icons/react';
+import { Check, LinkSimple } from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
 import { toggleComplete } from '../lib/actions';
 import { prefersReducedMotion } from '../lib/motion';
-import { useActiveTasks, useBoardProgress } from '../lib/store';
+import { useActiveTasks, useBlockedBy, useBoardProgress } from '../lib/store';
+import { TaskDetails } from './TaskDetails';
 import { boardPath, Link } from '../lib/router';
 import type { Board, Task } from '../../shared/types';
 import { NumberTicker, ProgressBar } from './ProgressBar';
@@ -80,23 +81,7 @@ export function BoardCard({ board }: { board: Board }) {
 
         <ul className="mt-3" aria-label={`${board.name} tasks`}>
           {preview.map((task) => (
-            <li key={task.id} className="flex items-center gap-1">
-              <Link
-                to={to}
-                className="hoverable -ml-2 min-w-0 flex-1 truncate rounded-chip px-2 py-1
-                           text-meta text-text-secondary"
-              >
-                {task.priority && (
-                  <span
-                    aria-hidden="true"
-                    className="mr-2 inline-block size-1 rounded-pill align-middle"
-                    style={{ backgroundColor: 'var(--accent)' }}
-                  />
-                )}
-                {task.name}
-              </Link>
-              <CompleteButton task={task} />
-            </li>
+            <PreviewRow key={task.id} task={task} to={to} />
           ))}
 
           {preview.length === 0 && (
@@ -111,6 +96,43 @@ export function BoardCard({ board }: { board: Board }) {
         </ul>
       </div>
     </div>
+  );
+}
+
+/**
+ * One preview row: the task's name, and the button that completes it.
+ *
+ * Hovering anywhere on the row opens the details card — notes, dates,
+ * difficulty and the rest — so the card can stay a list of names without the
+ * information being lost.
+ */
+function PreviewRow({ task, to }: { task: Task; to: string }) {
+  // A task waiting on an incomplete prerequisite reads as unavailable here for
+  // the same reason it does on the board, and its button refuses in the same
+  // way (§6.4).
+  const waiting = useBlockedBy(task.id);
+
+  return (
+    <TaskDetails task={task} className="flex items-center gap-1">
+      <Link
+        to={to}
+        className="hoverable -ml-2 min-w-0 flex-1 truncate rounded-chip px-2 py-1 text-meta"
+        style={{ color: waiting ? 'var(--text-tertiary)' : 'var(--text-secondary)' }}
+      >
+        {task.priority && !waiting && (
+          <span
+            aria-hidden="true"
+            className="mr-2 inline-block size-1 rounded-pill align-middle"
+            style={{ backgroundColor: 'var(--accent)' }}
+          />
+        )}
+        {waiting && (
+          <LinkSimple size={12} className="mr-1 inline-block shrink-0 align-middle" />
+        )}
+        {task.name}
+      </Link>
+      <CompleteButton task={task} waitingOn={waiting?.name ?? null} />
+    </TaskDetails>
   );
 }
 
@@ -139,7 +161,7 @@ type Phase = 'idle' | 'loading' | 'popping';
  * §8.5 says gets no animation ever, and reduced motion, where the pop is the
  * whole effect and there is nothing left worth waiting for.
  */
-function CompleteButton({ task }: { task: Task }) {
+function CompleteButton({ task, waitingOn }: { task: Task; waitingOn: string | null }) {
   const [phase, setPhase] = useState<Phase>('idle');
   const timers = useRef<number[]>([]);
 
@@ -155,6 +177,14 @@ function CompleteButton({ task }: { task: Task }) {
 
   function start(viaKeyboard: boolean) {
     if (phase !== 'idle') return;
+
+    // A gated task still calls through: `toggleComplete` refuses it and says
+    // what it is waiting on. Celebrating a completion that will not happen is
+    // the one thing the animation must not do, so it does not start.
+    if (waitingOn !== null) {
+      toggleComplete(task);
+      return;
+    }
 
     if (viaKeyboard || prefersReducedMotion()) {
       toggleComplete(task);
@@ -176,7 +206,12 @@ function CompleteButton({ task }: { task: Task }) {
       // `detail === 0` is a click the keyboard synthesised — the same test the
       // board screen's checkbox uses to tell Space and Enter from a thumb.
       onClick={(event) => start(event.detail === 0)}
-      aria-label={`Complete "${task.name}"`}
+      aria-disabled={waitingOn !== null || undefined}
+      aria-label={
+        waitingOn === null
+          ? `Complete "${task.name}"`
+          : `"${task.name}" is waiting on "${waitingOn}"`
+      }
       // Board cards drag to reorder, and a long press on a 44px target is a
       // press. This keeps the button out of that gesture.
       data-no-drag=""
@@ -208,6 +243,7 @@ function CompleteButton({ task }: { task: Task }) {
           borderColor: filled
             ? 'var(--accent)'
             : 'color-mix(in srgb, var(--text-tertiary) 60%, transparent)',
+          borderStyle: waitingOn === null ? 'solid' : 'dashed',
           color: filled ? 'var(--on-accent)' : 'var(--text-tertiary)',
           transition: `border-color ${LOAD_MS}ms var(--ease-out), color ${LOAD_MS}ms var(--ease-out)`,
           animation: phase === 'popping' ? `cairn-pop ${POP_MS}ms var(--ease-out)` : undefined,

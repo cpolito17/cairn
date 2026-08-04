@@ -52,6 +52,7 @@ export interface TaskRow {
   difficulty: number | null;
   priority: number;
   blocked: number;
+  depends_on: string | null;
   position: string;
   created_at: number;
   completed_at: number | null;
@@ -83,6 +84,7 @@ export function rowToTask(row: TaskRow): Task {
     difficulty: row.difficulty as Difficulty | null,
     priority: row.priority !== 0,
     blocked: row.blocked !== 0,
+    dependsOn: row.depends_on,
     position: row.position,
     createdAt: row.created_at,
     completedAt: row.completed_at,
@@ -100,7 +102,7 @@ const BOARD_COLUMNS =
   'id, context, name, description, position, archived_at, created_at, updated_at';
 const TASK_COLUMNS =
   'id, board_id, name, notes, due_date, due_time, duration, difficulty, priority, blocked, ' +
-  'position, created_at, completed_at, updated_at';
+  'depends_on, position, created_at, completed_at, updated_at';
 
 /**
  * Rows sort by position, then by id.
@@ -119,6 +121,19 @@ export async function selectBoards(db: D1Database): Promise<Board[]> {
 export async function selectTasks(db: D1Database): Promise<Task[]> {
   const { results } = await db
     .prepare(`SELECT ${TASK_COLUMNS} FROM tasks ORDER BY position, id`)
+    .all<TaskRow>();
+  return results.map(rowToTask);
+}
+
+/**
+ * Every task on one board. Used to validate a dependency: deciding whether a
+ * link would close a cycle means walking the chain, and the chain never leaves
+ * the board.
+ */
+export async function selectTasksOfBoard(db: D1Database, boardId: string): Promise<Task[]> {
+  const { results } = await db
+    .prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE board_id = ? ORDER BY position, id`)
+    .bind(boardId)
     .all<TaskRow>();
   return results.map(rowToTask);
 }
@@ -173,6 +188,7 @@ export interface NewTask {
   difficulty: Difficulty | null;
   priority: boolean;
   blocked: boolean;
+  dependsOn: string | null;
   position: string;
 }
 
@@ -181,8 +197,9 @@ export async function insertTask(db: D1Database, task: NewTask, now = Date.now()
   const row = await db
     .prepare(
       `INSERT INTO tasks (id, board_id, name, notes, due_date, due_time, duration, difficulty,
-                          priority, blocked, position, created_at, completed_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                          priority, blocked, depends_on, position, created_at, completed_at,
+                          updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
        RETURNING ${TASK_COLUMNS}`,
     )
     .bind(
@@ -196,6 +213,7 @@ export async function insertTask(db: D1Database, task: NewTask, now = Date.now()
       task.difficulty,
       task.priority ? 1 : 0,
       task.blocked ? 1 : 0,
+      task.dependsOn,
       task.position,
       now,
       now,

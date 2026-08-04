@@ -137,6 +137,7 @@ A task belongs to exactly one board. **Only the name is required.**
 | **Difficulty** | No | Integer 1 (easy) to 5 (difficult). Entered by tapping a five-segment pip control. Feeds the weighted progress calculation. |
 | **Priority** | No | A binary flag. Set or unset. Marks "this one matters." |
 | **Blocked** | No | A binary flag. Marks a task as waiting on something external. Blocked tasks are visually distinct and are excluded from Up Next. |
+| **Waiting on** | No | One other task **on the same board** that must be completed first. Chosen from a dropdown of that board's tasks. While the prerequisite is incomplete the dependent is *gated*: greyed, excluded from Up Next, and its checkbox refuses with an explanation. Completing the prerequisite releases every task waiting on it, with no second write — the gate is derived, never stored. The link may not point at the task itself, at a task on another board, or at anything that would close a cycle; the Worker enforces all three and refuses a gated completion with a 409. Deleting a prerequisite releases its dependents rather than deleting them. |
 | **Created at** | Auto | Recorded, never displayed in v1. Captured now because it cannot be backfilled later. |
 | **Completed at** | Auto | Recorded on completion, cleared on un-completion. Not displayed in v1. |
 | **Position** | Auto | The user-controlled order within the board. The representation is yours to choose; it must support inserting between two neighbors without rewriting the whole list, and must be stable under writes from two devices. |
@@ -506,7 +507,7 @@ These are deliberately excluded from v1. Do not build them. Do not add abstracti
 - Sharing, collaboration, comments, or any second user
 - File attachments
 - Calendar integration or ICS export
-- Themes beyond the specified light and dark
+- Themes beyond the four that ship (Ocean, Dark, Light, Forest)
 - Any account management: registration, password reset, email
 
 ---
@@ -516,3 +517,42 @@ These are deliberately excluded from v1. Do not build them. Do not add abstracti
 - **The domain and subdomain** the app deploys to, and confirmation that the Cloudflare zone is already configured. Do not guess at DNS records.
 - **How the initial password is set** — the owner will supply the mechanism they prefer for getting a hash into the deployment environment. Do not invent a registration flow or ship a default password.
 - **The product name and wordmark treatment** if "Cairn" is not final.
+
+---
+
+## 12. V2 ideas
+
+Not for this version. Recorded here so the thinking is not lost, and so nobody
+mistakes any of it for something the current build was supposed to do.
+
+### Visualizing dependencies and bottlenecks
+
+Tasks can now wait on one another (§6.4), which means the data describes a
+graph and not just a list. Nothing in this version *shows* that graph — a
+dependent says "waiting on X" and that is the whole of it. The interesting
+question is what the shape is worth once there is enough of it to look at:
+
+- **Bottleneck surfacing.** A prerequisite with several tasks queued behind it
+  is the single highest-leverage thing on the board, and today it looks exactly
+  like every other task. A count, a weight, or a position at the top of the
+  board would each say "unblock this first."
+- **Chain view.** The longest path through a board is its critical path: the
+  minimum number of sequential steps to finish everything. Worth showing when a
+  board is being planned rather than worked.
+- **A real graph.** Nodes and edges, laid out. The obvious idea and the one to
+  be most careful with — it is beautiful in a screenshot and rarely the fastest
+  way to answer a question about what to do next.
+- **Roll-up onto the dashboard.** A board card could say "3 tasks blocked" the
+  way it says "2 of 7 tasks", which puts the bottleneck signal where the
+  overview already is.
+
+Two constraints any of this inherits: a task waits on at most one other task,
+and a link never crosses boards. Both are worth revisiting before building a
+visualization — a many-to-many graph is a different feature, not a bigger
+version of this one.
+
+### Other
+
+- Multiple prerequisites per task, if the single link proves too thin in use.
+- Dependencies that cross boards, which would need a way to show a gate whose
+  cause is somewhere the user is not looking.

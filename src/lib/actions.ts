@@ -23,6 +23,7 @@ import {
   type NewTask,
 } from './store';
 import { toast } from './toasts';
+import { blockedBy, lookupOf } from '../../shared/dependencies';
 import type { Board, Context, Task } from '../../shared/types';
 import { createBoardSpec } from './store';
 
@@ -36,6 +37,17 @@ import { createBoardSpec } from './store';
 export function toggleComplete(task: Task): void {
   const store = useStore.getState();
   const completing = task.completedAt === null;
+
+  // The dependency gate. Every completion path routes through here, so this is
+  // the one place it has to hold — and the Worker refuses the same write with a
+  // 409, so a stale client cannot get around it either.
+  if (completing) {
+    const waiting = blockedBy(task, lookupOf(store.tasks));
+    if (waiting) {
+      toast.info(`"${task.name}" is waiting on "${waiting.name}".`);
+      return;
+    }
+  }
 
   // An un-completed task goes to the *end* of the active list, deliberately —
   // restoring its old position reshuffles the list under the user's hands

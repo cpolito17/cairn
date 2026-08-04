@@ -9,6 +9,7 @@
  * the same answer for the same inputs.
  */
 
+import { isGated, lookupOf } from './dependencies';
 import { DEFAULT_DIFFICULTY, type Board, type Context, type Task } from './types';
 
 /** Most entries the strip shows. §6.7. */
@@ -50,10 +51,16 @@ export function upNext(boards: Board[], tasks: Task[], context: Context, _now: n
     boards.filter((b) => b.context === context && b.archivedAt === null).map((b) => b.id),
   );
 
+  // A task waiting on an incomplete prerequisite is excluded for the same
+  // reason a hand-blocked one is: Up Next answers "what now?", and neither can
+  // be done now. It leaves the strip the moment its prerequisite is completed.
+  const lookup = lookupOf(tasks);
+
   const candidates = tasks.filter(
     (t) =>
       t.completedAt === null &&
       !t.blocked &&
+      !isGated(t, lookup) &&
       t.dueDate !== null &&
       eligibleBoards.has(t.boardId),
   );

@@ -256,6 +256,22 @@
     }
   }
 
+  /* The hover details card (§8.5): a 120ms fade with a 4px settle from the
+     side it opened on. Under reduced motion the base rule drops the transform
+     and keeps the fade, which is the half that explains what appeared. */
+  .cairn-details {
+    animation: cairn-details-in 120ms var(--ease-out);
+  }
+
+  @keyframes cairn-details-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
   /* Up Next bleeds off the right edge to signal scrollability (§6.7); the
      scrollbar itself would draw a line under the cards and undo that. */
   .edge-scroll {

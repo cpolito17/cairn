@@ -30,6 +30,7 @@ import {
   useStore,
 } from '../lib/store';
 import type { TaskPatch } from '../lib/api';
+import { dependencyOptions, lookupOf } from '../../shared/dependencies';
 import { formatDuration } from '../lib/dates';
 import { DURATIONS, type Context, type Difficulty, type Task } from '../../shared/types';
 import { Button } from './ui/Button';
@@ -39,6 +40,9 @@ import { Dialog, DialogHeader } from './ui/Dialog';
 import { Input, Textarea } from './ui/Input';
 import { Modal } from './ui/Modal';
 import { PipsInput } from './ui/Pips';
+
+/** Five-minute granularity in the native time picker (§6.4). */
+const TIME_STEP_SECONDS = 300;
 
 /** The editable shape, so "changed?" is one comparison instead of eight. */
 interface Draft {
@@ -50,6 +54,8 @@ interface Draft {
   difficulty: Difficulty | null;
   priority: boolean;
   blocked: boolean;
+  /** '' means "not waiting on anything" — a select cannot hold null. */
+  dependsOn: string;
 }
 
 function draftOf(task: Task | undefined, prefill: string): Draft {
@@ -62,6 +68,7 @@ function draftOf(task: Task | undefined, prefill: string): Draft {
     difficulty: task?.difficulty ?? null,
     priority: task?.priority ?? false,
     blocked: task?.blocked ?? false,
+    dependsOn: task?.dependsOn ?? '',
   };
 }
 
@@ -74,7 +81,8 @@ function same(a: Draft, b: Draft): boolean {
     a.duration === b.duration &&
     a.difficulty === b.difficulty &&
     a.priority === b.priority &&
-    a.blocked === b.blocked
+    a.blocked === b.blocked &&
+    a.dependsOn === b.dependsOn
   );
 }
 
@@ -145,6 +153,7 @@ export function TaskComposer({
     if (draft.difficulty !== initial.difficulty) next.difficulty = draft.difficulty;
     if (draft.priority !== initial.priority) next.priority = draft.priority;
     if (draft.blocked !== initial.blocked) next.blocked = draft.blocked;
+    if (draft.dependsOn !== initial.dependsOn) next.dependsOn = draft.dependsOn || null;
     return next;
   }
 
@@ -172,6 +181,7 @@ export function TaskComposer({
         difficulty: draft.difficulty,
         priority: draft.priority,
         blocked: draft.blocked,
+        dependsOn: draft.dependsOn || null,
       });
     }
     onClose();
@@ -241,6 +251,12 @@ export function TaskComposer({
               <Input
                 label="Due time"
                 type="time"
+                // Five-minute granularity. `step` is what drives the native
+                // picker's minute list, so 300 turns 60 rows into 12 — the
+                // difference between scrolling for 3:35 and glancing at it.
+                // Times already stored off the grid still display and still
+                // save; the step governs what the picker *offers*.
+                step={TIME_STEP_SECONDS}
                 value={draft.dueTime}
                 onChange={(event) => set('dueTime', event.target.value)}
               />
@@ -288,6 +304,15 @@ export function TaskComposer({
               label="Blocked"
               on={draft.blocked}
               onToggle={() => set('blocked', !draft.blocked)}
+            />
+          </Field>
+
+          <Field>
+            <DependsOn
+              task={task}
+              boardId={boardId}
+              value={draft.dependsOn}
+              onChange={(value) => set('dependsOn', value)}
             />
           </Field>
 
@@ -409,6 +434,64 @@ function Toggle({
       {icon}
       <span className="text-row">{label}</span>
     </button>
+  );
+}
+
+/**
+ * "Waiting on" — the one dependency a task may hold (§6.4).
+ *
+ * The options are every other task on the same board that `canDependOn`
+ * allows, which is the same function the Worker validates with: the list
+ * cannot offer something the server would refuse. In create mode the task does
+ * not exist yet, so a stand-in carrying the destination board is what the rule
+ * is applied to — nothing can point at an id that has not been minted, so no
+ * cycle is reachable and the filter reduces to "on this board".
+ *
+ * Completed tasks stay in the list. Depending on something already done is
+ * legal and simply gates nothing, and dropping them would make the options
+ * shift under the user the moment they finished something.
+ */
+function DependsOn({
+  task,
+  boardId,
+  value,
+  onChange,
+}: {
+  task: Task | undefined;
+  boardId: string;
+  value: string;
+  onChange(value: string): void;
+}) {
+  const tasks = useStore((state) => state.tasks);
+
+  const options = useMemo(() => {
+    const subject: Task = task ?? ({ id: '', boardId } as Task);
+    const candidates = Object.values(tasks)
+      .filter((candidate) => candidate.boardId === boardId)
+      .sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0));
+    return dependencyOptions(subject, candidates, lookupOf(tasks));
+  }, [task, boardId, tasks]);
+
+  if (options.length === 0) return null;
+
+  return (
+    <label className="block">
+      <FieldLabel>Waiting on</FieldLabel>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-control border-0 bg-surface-2 px-4 text-row text-text
+                   outline-none focus-visible:outline-2 focus-visible:outline-accent"
+        style={{ height: 'var(--tap-target)' }}
+      >
+        <option value="">Nothing</option>
+        {options.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.completedAt !== null ? `${option.name} (done)` : option.name}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

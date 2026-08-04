@@ -60,7 +60,20 @@ export interface Task {
   difficulty: Difficulty | null;
   /** Binary flag, not a scale. */
   priority: boolean;
+  /**
+   * The user's own "I am stuck on this" flag. Independent of `dependsOn`: this
+   * one is asserted by hand and cleared by hand, and nothing resolves it.
+   */
   blocked: boolean;
+  /**
+   * The task this one is waiting on, or null. Always another task on the *same
+   * board*, never itself, and never a link that would close a cycle — the
+   * Worker enforces all three.
+   *
+   * A task whose prerequisite is incomplete cannot be completed; see
+   * `shared/dependencies.ts`, which is the only place that rule is written.
+   */
+  dependsOn: string | null;
   /** Fractional index within its board's active list. */
   position: string;
   createdAt: number;

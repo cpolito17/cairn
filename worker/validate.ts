@@ -73,6 +73,15 @@ export function requiredId(value: unknown, label: string): string {
   return value;
 }
 
+/** An optional reference to another row: a non-empty id, or null to clear it. */
+export function nullableId(value: unknown, label: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new BadRequest(`${label} must be an id or null`);
+  }
+  return value;
+}
+
 export function nullableText(value: unknown, label: string): string | null {
   if (value === null) return null;
   if (typeof value !== 'string') throw new BadRequest(`${label} must be a string or null`);

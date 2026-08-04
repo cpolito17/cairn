@@ -25,6 +25,7 @@ import { boardPath, navigate } from '../lib/router';
 import { useStore, useUpNext } from '../lib/store';
 import type { Context, Task } from '../../shared/types';
 import { Skeleton } from './ui/Skeleton';
+import { TaskDetails } from './TaskDetails';
 import { Collapsible, SectionHeader } from './ui/Section';
 import { OUT } from '../lib/motion';
 
@@ -51,12 +52,24 @@ export function UpNext({ context }: { context: Context }) {
               <motion.li
                 key={task.id}
                 className="shrink-0"
-                style={{ width: '15rem', scrollSnapAlign: 'start' }}
+                // Sized to its content between a floor and a ceiling rather
+                // than fixed: a name that used to be clipped at two lines now
+                // widens the card until it fits, and only wraps once the card
+                // has reached the ceiling. The floor keeps a one-word task from
+                // collapsing to a chip.
+                style={{
+                  width: 'max-content',
+                  minWidth: '15rem',
+                  maxWidth: 'min(26rem, 85vw)',
+                  scrollSnapAlign: 'start',
+                }}
                 initial={cold ? { opacity: 0, y: 8 } : false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.24, ease: OUT, delay: cold ? staggerDelay(index) : 0 }}
               >
-                <UpNextCard task={task} />
+                <TaskDetails task={task} className="block h-full">
+                  <UpNextCard task={task} />
+                </TaskDetails>
               </motion.li>
             ))}
           </ul>
@@ -114,12 +127,7 @@ function UpNextCard({ task }: { task: Task }) {
         <span className="flex items-start gap-1">
           <span
             className="min-w-0 flex-1 text-row text-text"
-            style={{
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-            }}
+            style={{ overflowWrap: 'anywhere' }}
           >
             {task.name}
           </span>
@@ -132,7 +140,7 @@ function UpNextCard({ task }: { task: Task }) {
             />
           )}
         </span>
-        <span className="mt-2 block truncate text-meta text-text-secondary">
+        <span className="mt-2 block text-meta text-text-secondary">
           {board?.name ?? ''}
         </span>
         {due && (

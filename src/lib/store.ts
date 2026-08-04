@@ -21,20 +21,14 @@
  */
 
 import { create } from 'zustand';
+import { blockedBy, lookupOf } from '../../shared/dependencies';
 import { boardProgress, type BoardProgress } from '../../shared/progress';
 import { midpoint } from '../../shared/order';
 import type { Board, Context, Task } from '../../shared/types';
 import { upNext } from '../../shared/upnext';
 import * as api from './api';
 import { ApiError } from './api';
-import {
-  applyTheme,
-  initialTheme,
-  nextTheme,
-  readStoredTheme,
-  storeTheme,
-  type Theme,
-} from './theme';
+import { applyTheme, DEFAULT_THEME, initialTheme, nextTheme, storeTheme, type Theme } from './theme';
 import { toast } from './toasts';
 
 /* --- shape ----------------------------------------------------------------- */
@@ -157,8 +151,6 @@ export interface AppStore extends Data {
   setTheme(theme: Theme): void;
   /** Advance to the next theme in `THEMES`. The menu's only theme control. */
   cycleTheme(): void;
-  /** Follow the system preference — ignored once this context has an override. */
-  followSystemTheme(theme: Theme): void;
   setOnline(online: boolean): void;
   /** Drop every entity. Called when the session is lost. */
   reset(): void;
@@ -172,7 +164,8 @@ export interface AppStore extends Data {
 // first. That ordering is the whole of what makes a per-context theme land
 // without a flash on a reload into the Work tab.
 const bootContext: Context = typeof localStorage === 'undefined' ? 'personal' : readStoredContext();
-const bootTheme: Theme = typeof window === 'undefined' ? 'dark' : initialTheme(bootContext);
+const bootTheme: Theme =
+  typeof window === 'undefined' ? DEFAULT_THEME : initialTheme(bootContext);
 if (typeof document !== 'undefined') applyTheme(bootTheme);
 
 let inFlightLoad: Promise<void> | null = null;
@@ -257,15 +250,6 @@ export const useStore = create<AppStore>((set, get) => ({
 
   cycleTheme() {
     get().setTheme(nextTheme(get().theme));
-  },
-
-  followSystemTheme(theme) {
-    // The OS flipping is not an instruction in a context the user has already
-    // made a choice in — and it says nothing at all about the other context,
-    // which keeps whatever it had.
-    if (readStoredTheme(get().context) !== null) return;
-    applyTheme(theme);
-    set({ theme });
   },
 
   setOnline(online) {
@@ -379,6 +363,25 @@ export const selectUpNext = memoized((data: Data, context: Context) =>
   upNext(Object.values(data.boards), Object.values(data.tasks), context, Date.now()),
 );
 
+/**
+ * A lookup over every task, for the dependency rules in
+ * `shared/dependencies.ts`. Memoized on the task map so the walk a gated row
+ * does on every render is over a Map built once per change, not per row.
+ */
+export const selectTaskLookup = memoized((data: Data, _key: null) => lookupOf(data.tasks));
+
+/**
+ * The incomplete task this one is waiting on, or null when it is free.
+ *
+ * It goes through `selectTaskLookup` rather than building its own Map: this is
+ * called once per visible row, and a Map per row per render is the difference
+ * between one pass over the tasks and one per row.
+ */
+export const selectBlockedBy = memoized((data: Data, taskId: string): Task | null => {
+  const task = data.tasks[taskId];
+  return task ? blockedBy(task, selectTaskLookup(data, null)) : null;
+});
+
 /** Difficulty-weighted progress for a board, from `shared/progress.ts`. */
 export const selectBoardProgress = memoized((data: Data, boardId: string): BoardProgress =>
   boardProgress(Object.values(data.tasks).filter((task) => task.boardId === boardId)),
@@ -407,6 +410,14 @@ export const useUpNext = (context: Context): Task[] =>
 
 export const useBoardProgress = (boardId: string): BoardProgress =>
   useStore((state) => selectBoardProgress(state, boardId));
+
+/**
+ * The incomplete task `taskId` is waiting on, or null. A row uses this to gate
+ * its own completion — the rule is derived on read, so completing the
+ * prerequisite releases every dependent in the same render.
+ */
+export const useBlockedBy = (taskId: string): Task | null =>
+  useStore((state) => selectBlockedBy(state, taskId));
 
 /* --- positions ------------------------------------------------------------- */
 
@@ -590,6 +601,7 @@ export interface NewTask {
   difficulty?: Task['difficulty'];
   priority?: boolean;
   blocked?: boolean;
+  dependsOn?: string | null;
   position: string;
 }
 
@@ -606,6 +618,7 @@ export function createTaskSpec(draft: NewTask): MutationSpec<Task> {
     difficulty: draft.difficulty ?? null,
     priority: draft.priority ?? false,
     blocked: draft.blocked ?? false,
+    dependsOn: draft.dependsOn ?? null,
     position: draft.position,
     createdAt: now,
     completedAt: null,
@@ -628,6 +641,7 @@ export function createTaskSpec(draft: NewTask): MutationSpec<Task> {
         difficulty: optimistic.difficulty,
         priority: optimistic.priority,
         blocked: optimistic.blocked,
+        dependsOn: optimistic.dependsOn,
         position: optimistic.position,
       }),
     reconcile: (data, task) => replaceTaskId(data, optimistic.id, task),
@@ -645,6 +659,7 @@ export function updateTaskSpec(task: Task, patch: api.TaskPatch): MutationSpec<T
     ...(patch.difficulty === undefined ? {} : { difficulty: patch.difficulty }),
     ...(patch.priority === undefined ? {} : { priority: patch.priority }),
     ...(patch.blocked === undefined ? {} : { blocked: patch.blocked }),
+    ...(patch.dependsOn === undefined ? {} : { dependsOn: patch.dependsOn }),
     ...(patch.position === undefined ? {} : { position: patch.position }),
     ...(patch.boardId === undefined ? {} : { boardId: patch.boardId }),
     // Optimistic only. The server clocks completion and its value wins in
