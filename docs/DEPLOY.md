@@ -102,6 +102,40 @@ its deploy command at the same sequence, or apply the migration by hand
 npx wrangler d1 migrations apply cairn --remote && npx wrangler deploy
 ```
 
+### Applying a migration from the Cloudflare dashboard
+
+Sometimes there is no authenticated `wrangler` to hand. A migration can be
+applied from **D1 → `cairn` → Console** instead, but it has to do *both* halves
+of what `wrangler d1 migrations apply` does: run the SQL, **and** record the
+migration in the `d1_migrations` table. Skipping the bookkeeping leaves the
+database correct and Wrangler's view of it wrong — the next
+`migrations apply --remote` will try to run the same file again and fail on
+`duplicate column name`.
+
+Check what is actually there first:
+
+```sql
+SELECT name FROM d1_migrations ORDER BY id;
+PRAGMA table_info(tasks);
+```
+
+Then run the migration's SQL followed by its bookkeeping row, using the
+migration's **exact filename**:
+
+```sql
+ALTER TABLE tasks ADD COLUMN depends_on TEXT REFERENCES tasks(id) ON DELETE SET NULL;
+CREATE INDEX idx_tasks_depends_on ON tasks(depends_on);
+INSERT INTO d1_migrations (name) VALUES ('0002_task_dependencies.sql');
+```
+
+`id` and `applied_at` are defaulted by the table, so the name is the only value
+to supply. This sequence has been verified against a local database to leave it
+in the same state the CLI produces: `wrangler d1 migrations list` then reports
+nothing pending, and a later `apply` is a no-op.
+
+If the column already exists but the `d1_migrations` row is missing — someone
+ran the ALTER by hand before — run the `INSERT` alone.
+
 ### Checking what the live database actually has
 
 ```sh
