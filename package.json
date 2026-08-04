@@ -13,7 +13,7 @@
     "migrate:local": "wrangler d1 migrations apply cairn --local",
     "migrate:remote": "wrangler d1 migrations apply cairn --remote",
     "worker:dev": "wrangler dev",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && npm run migrate:remote && wrangler deploy"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
@@ -28,6 +28,7 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.1",
     "@vitejs/plugin-react": "^5.0.4",
+    "playwright": "^1.62.1",
     "tailwindcss": "^4.1.14",
     "typescript": "^5.9.3",
     "vite": "^7.1.9",

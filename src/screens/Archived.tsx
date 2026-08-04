@@ -13,7 +13,7 @@ import { useState } from 'react';
 import { DeleteConfirm } from '../components/DeleteConfirm';
 import { NumberTicker, ProgressBar } from '../components/ProgressBar';
 import { Button } from '../components/ui/Button';
-import { EmptyLine, ErrorLine } from '../components/ui/Section';
+import { EmptyLine, ErrorLine, loadErrorMessage } from '../components/ui/Section';
 import { Skeleton } from '../components/ui/Skeleton';
 import { tasksOfBoard } from '../lib/actions';
 import {
@@ -147,6 +147,7 @@ function ArchivedSkeleton() {
 
 function ArchivedError() {
   const load = useStore((state) => state.load);
+  const failure = useStore((state) => state.failure);
   return (
     <>
       <h1 className="mb-section text-board-title text-text">Archived</h1>
@@ -157,7 +158,7 @@ function ArchivedError() {
           </Button>
         }
       >
-        Couldn&rsquo;t load your archived boards. The connection may have dropped.
+        {loadErrorMessage('your archived boards', failure)}
       </ErrorLine>
     </>
   );

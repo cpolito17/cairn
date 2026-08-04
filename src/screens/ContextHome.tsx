@@ -18,7 +18,7 @@ import { Reorderable } from '../components/Reorderable';
 import { reorderBoard } from '../lib/actions';
 import { UpNext, UpNextSkeleton } from '../components/UpNext';
 import { Button } from '../components/ui/Button';
-import { EmptyLine, ErrorLine, SectionHeader } from '../components/ui/Section';
+import { EmptyLine, ErrorLine, loadErrorMessage, SectionHeader } from '../components/ui/Section';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { claimColdLoad, staggerDelay } from '../lib/coldload';
 import { useBoards, useStore } from '../lib/store';
@@ -152,6 +152,7 @@ function HomeSkeleton() {
 
 function HomeError() {
   const load = useStore((state) => state.load);
+  const failure = useStore((state) => state.failure);
   return (
     <ErrorLine
       action={
@@ -160,7 +161,7 @@ function HomeError() {
         </Button>
       }
     >
-      Couldn&rsquo;t load your boards. The connection may have dropped.
+      {loadErrorMessage('your boards', failure)}
     </ErrorLine>
   );
 }

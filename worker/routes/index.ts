@@ -34,13 +34,17 @@ async function state(env: Env): Promise<Response> {
 export async function handleApi(request: Request, env: Env): Promise<Response> {
   const { pathname } = new URL(request.url);
 
-  const auth = handleAuth(request, env, pathname);
-  if (auth) return auth;
-
-  const unauthorized = await requireSession(request, env);
-  if (unauthorized) return unauthorized;
-
+  // The whole request is inside the guard, auth included: the login endpoint
+  // reads `login_attempts`, so a database that is missing or behind fails
+  // there too, and that failure has exactly as much right to a log line and a
+  // parseable body as one from a data route.
   try {
+    const auth = handleAuth(request, env, pathname);
+    if (auth) return await auth;
+
+    const unauthorized = await requireSession(request, env);
+    if (unauthorized) return unauthorized;
+
     if (pathname === '/api/state') {
       if (request.method !== 'GET') return apiError('Method not allowed', 405);
       return await state(env);
@@ -59,6 +63,22 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     // A rejected body never reaches a write: the parsers throw before any
     // statement runs.
     if (err instanceof BadRequest) return apiError(err.message, 400);
-    throw err;
+
+    // Anything else is a bug or a broken environment, and it used to leave the
+    // Worker by throwing — which produces Cloudflare's own 500 page, an HTML
+    // body the client cannot parse, and nothing in the logs the owner can
+    // search for. A schema/code mismatch (a migration applied to the repo but
+    // not to the database) lands here, and it took a local reproduction to
+    // find because of exactly that silence.
+    //
+    // So: log it, and answer with the app's own error shape. The message is
+    // deliberately generic to the caller and specific in the log.
+    console.error('unhandled API error', {
+      pathname,
+      method: request.method,
+      error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+    return apiError('internal error', 500);
   }
 }
