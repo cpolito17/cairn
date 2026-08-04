@@ -29,7 +29,7 @@ import type { Board, Context, Settings, Task } from '../../shared/types';
 import { upNext } from '../../shared/upnext';
 import * as api from './api';
 import { ApiError } from './api';
-import { applyTheme, DEFAULT_THEME, initialTheme, nextTheme, storeTheme, type Theme } from './theme';
+import { applyTheme, DEFAULT_THEME, initialTheme, storeTheme, type Theme } from './theme';
 import { toast } from './toasts';
 
 /* --- shape ----------------------------------------------------------------- */
@@ -177,10 +177,14 @@ export interface AppStore extends Data {
   mutate<R>(spec: MutationSpec<R>): Promise<boolean>;
 
   setContext(context: Context): void;
-  /** Set the *active context's* theme. The other context is untouched. */
+  /**
+   * Set the *active context's* theme. The other context is untouched.
+   *
+   * The only theme mutation there is. The cycle it replaced could not survive
+   * eight themes (V2 §5.1), and leaving it alongside the dropdown would have
+   * meant two ways to reach the same state with different persistence paths.
+   */
   setTheme(theme: Theme): void;
-  /** Advance to the next theme in `THEMES`. The menu's only theme control. */
-  cycleTheme(): void;
   setOnline(online: boolean): void;
   /** Drop every entity. Called when the session is lost. */
   reset(): void;
@@ -290,9 +294,6 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ theme });
   },
 
-  cycleTheme() {
-    get().setTheme(nextTheme(get().theme));
-  },
 
   setOnline(online) {
     if (get().online === online) return;

@@ -309,9 +309,11 @@
     }
   }
 
-  /* §9.2: on narrow viewports the segmented control takes the full width of a
-     second header line rather than compressing. One instance, moved by the
-     grid — two instances would fight over the thumb's layoutId. */
+  /* §9.2, V2 §4.1: on narrow viewports the view selector takes the full width
+     of a second header line rather than compressing. One instance, moved by the
+     grid — two instances would fight over the thumb's layoutId. This is the
+     same rule the Personal/Work control used before the selector changed what
+     it switches; the control moved meaning, not slot. */
   .app-header-grid {
     display: grid;
     grid-template-columns: 1fr auto;
@@ -343,7 +345,9 @@
 
     .app-header-segmented {
       justify-self: center;
-      min-width: 240px;
+      /* Three segments now, and the longest is "Blockers": 240px was sized for
+         two and truncated the labels. */
+      min-width: 320px;
     }
   }
 

@@ -25,9 +25,11 @@ import { Link, useRoute } from './lib/router';
 import { subscribeToConnectivity, useStore } from './lib/store';
 import { useToasts } from './lib/toasts';
 import { Archived } from './screens/Archived';
+import { Blockers } from './screens/Blockers';
 import { Board } from './screens/Board';
 import { ContextHome } from './screens/ContextHome';
 import { Login } from './screens/Login';
+import { Planner } from './screens/Planner';
 
 type Auth = 'checking' | 'in' | 'out';
 
@@ -112,6 +114,10 @@ function Routes() {
       return <Board id={route.id} />;
     case 'archived':
       return <Archived />;
+    case 'blockers':
+      return <Blockers />;
+    case 'planner':
+      return <Planner />;
     case 'notFound':
       return <NotFound path={route.path} />;
   }

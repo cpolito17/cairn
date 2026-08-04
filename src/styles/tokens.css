@@ -9,10 +9,22 @@
  * being one more override so that the very first paint, before any JavaScript
  * has run, is already the default theme: the login screen included.
  *
- * Four themes ship, cycled from the settings menu (see src/lib/theme.ts, which
- * owns the cycle order and the default): Ocean (dark, cool), Dark, Light, and
- * Forest (light, warm). Adding a fifth is a block here plus an entry in THEMES
- * — nothing else.
+ * Eight themes ship, chosen from the theme dropdown in the settings sheet (see
+ * src/lib/theme.ts, which owns the order, the grouping and the default). Dark:
+ * Ocean, Dark, Monokai Dark, Dusk. Light: Light, Forest, Monokai Light, Slate.
+ * Adding a ninth is a block here plus an entry in THEMES and THEME_SWATCHES —
+ * nothing else.
+ *
+ * `THEME_SWATCHES` in src/lib/theme.ts duplicates each theme's `--bg` and
+ * `--accent` as JavaScript values, because the theme dropdown has to paint a
+ * swatch for a theme that is *not* applied and so cannot read these variables.
+ * The duplication is deliberate and manual: changing a `--bg` or an `--accent`
+ * here means changing it there in the same commit (V2 §5.1).
+ *
+ * Every value below is contrast-verified in place rather than taken on faith —
+ * --text, --text-secondary and --text-tertiary all clear 4.5:1 against --bg,
+ * --surface and --surface-2 in the four new themes, and where the V2 spec's
+ * proposed hue did not, the adjustment and its reason are commented inline.
  */
 
 :root {
@@ -173,6 +185,108 @@
   --shadow-sm: 0 1px 2px rgba(20, 40, 28, 0.07);
   --shadow-md: 0 6px 16px rgba(20, 40, 28, 0.11);
   --shadow-lg: 0 16px 48px rgba(20, 40, 28, 0.15);
+
+  color-scheme: light;
+}
+
+/* Monokai Dark — the classic editor palette: warm near-black, off-white text.
+   Monokai's signature pink and green carry --negative and --positive, which is
+   exactly where they belong semantically, so the accent is the cyan (V2 §5). */
+[data-theme='monokai-dark'] {
+  --bg: #1b1c18;
+  --surface: #272822;
+  --surface-2: #33342c;
+  --text: #f8f8f2;
+  --text-secondary: #b4b6a7;
+  /* Adjusted from the spec's #908b76: that reached only 4.35:1 on --surface and
+     3.68:1 on --surface-2, and this role carries input placeholders and
+     completed-task text. Lifted 14% toward white, hue held. */
+  --text-tertiary: #9f9b89;
+  --hairline: rgba(248, 248, 242, 0.09);
+  --accent: #66d9ef;
+  --accent-tint: rgba(102, 217, 239, 0.14);
+  --on-accent: #0c1d21;
+  --positive: #a6e22e;
+  /* Monokai's pink, lifted 16% toward white: #f92672 reached only 3.93:1 on
+     --surface, and this role is error and overdue *text*. */
+  --negative: #fa4989;
+  --scrim: rgba(0, 0, 0, 0.55);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.52);
+
+  color-scheme: dark;
+}
+
+/* Monokai Light — the same palette inverted onto warm paper. */
+[data-theme='monokai-light'] {
+  --bg: #faf9f2;
+  --surface: #ffffff;
+  --surface-2: #efeee3;
+  --text: #1d1e18;
+  --text-secondary: #55564b;
+  /* Adjusted from the spec's #84857a — 3.74:1 on --surface. Darkened 18%. */
+  --text-tertiary: #6c6c64;
+  --hairline: rgba(29, 30, 24, 0.1);
+  --accent: #0f7285;
+  --accent-tint: rgba(15, 114, 133, 0.1);
+  --on-accent: #ffffff;
+  --positive: #4c7a0b;
+  --negative: #c2185b;
+  --scrim: rgba(0, 0, 0, 0.4);
+
+  --shadow-sm: 0 1px 2px rgba(29, 30, 24, 0.07);
+  --shadow-md: 0 6px 16px rgba(29, 30, 24, 0.11);
+  --shadow-lg: 0 16px 48px rgba(29, 30, 24, 0.15);
+
+  color-scheme: light;
+}
+
+/* Dusk — cool near-black with a violet cast. */
+[data-theme='dusk'] {
+  --bg: #100e17;
+  --surface: #191622;
+  --surface-2: #221e2e;
+  --text: #edeaf5;
+  --text-secondary: #a29cb8;
+  /* Adjusted from the spec's #7b7590 — 4.06:1 on --surface. Lifted 12%. */
+  --text-tertiary: #8b869e;
+  --hairline: rgba(237, 234, 245, 0.08);
+  --accent: #a78bfa;
+  --accent-tint: rgba(167, 139, 250, 0.14);
+  --on-accent: #14091f;
+  --positive: #4ade80;
+  --negative: #fb7185;
+  --scrim: rgba(0, 0, 0, 0.55);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.52);
+
+  color-scheme: dark;
+}
+
+/* Slate — cool light grey, the most neutral of the four. */
+[data-theme='slate'] {
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --surface-2: #e9edf3;
+  --text: #14181f;
+  --text-secondary: #4e5762;
+  /* Adjusted from the spec's #808b99 — 3.46:1 on --surface. Darkened 22%. */
+  --text-tertiary: #636c77;
+  --hairline: rgba(20, 24, 31, 0.09);
+  --accent: #3b4cc0;
+  --accent-tint: rgba(59, 76, 192, 0.1);
+  --on-accent: #ffffff;
+  --positive: #157f3d;
+  --negative: #c62828;
+  --scrim: rgba(0, 0, 0, 0.4);
+
+  --shadow-sm: 0 1px 2px rgba(20, 24, 31, 0.07);
+  --shadow-md: 0 6px 16px rgba(20, 24, 31, 0.11);
+  --shadow-lg: 0 16px 48px rgba(20, 24, 31, 0.15);
 
   color-scheme: light;
 }
