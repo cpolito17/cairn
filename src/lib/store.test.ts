@@ -32,8 +32,12 @@ import {
   createTaskSpec,
   deleteBoardSpec,
   reorderTaskSpec,
+  scheduleKey,
   selectActiveTasks,
   selectBoardsFor,
+  selectSchedule,
+  selectUnscheduled,
+  unscheduledKey,
   useStore,
 } from './store';
 import { useToasts } from './toasts';
@@ -249,5 +253,72 @@ describe('selectors', () => {
       tasks: { t1: task(), t2: task({ id: 't2', completedAt: 5 }) },
     });
     expect(selectActiveTasks(useStore.getState(), 'b1').map((t) => t.id)).toEqual(['t1']);
+  });
+});
+
+/**
+ * The planner selectors. The *ordering* is `shared/planner.ts` and is tested
+ * there; what belongs here is which tasks these selectors reach for — which is
+ * where a context leak or a resurrected archived board would come from.
+ */
+describe('planner selectors', () => {
+  const day = new Date(2026, 2, 4, 0, 0, 0, 0).getTime();
+  const at = (hour: number) => day + hour * 3_600_000;
+
+  it('take unscheduled, incomplete tasks from active boards of one context', () => {
+    useStore.setState({
+      boards: {
+        b1: board(),
+        archived: board({ id: 'archived', archivedAt: 9 }),
+        work: board({ id: 'work', context: 'work' }),
+      },
+      tasks: {
+        keep: task({ id: 'keep' }),
+        done: task({ id: 'done', completedAt: 5 }),
+        booked: task({ id: 'booked', scheduledAt: at(9) }),
+        shelved: task({ id: 'shelved', boardId: 'archived' }),
+        elsewhere: task({ id: 'elsewhere', boardId: 'work' }),
+      },
+    });
+
+    expect(
+      selectUnscheduled(useStore.getState(), unscheduledKey('personal', 'dueDate')).map((t) => t.id),
+    ).toEqual(['keep']);
+  });
+
+  it('draw the other context as ghosts, and archived boards as nothing at all', () => {
+    useStore.setState({
+      boards: {
+        b1: board(),
+        work: board({ id: 'work', context: 'work' }),
+        archived: board({ id: 'archived', archivedAt: 9 }),
+      },
+      tasks: {
+        mine: task({ id: 'mine', scheduledAt: at(9), durationMinutes: 60 }),
+        theirs: task({ id: 'theirs', boardId: 'work', scheduledAt: at(9), durationMinutes: 60 }),
+        shelved: task({
+          id: 'shelved',
+          boardId: 'archived',
+          scheduledAt: at(9),
+          durationMinutes: 60,
+        }),
+      },
+    });
+
+    const [column] = selectSchedule(useStore.getState(), scheduleKey('personal', day, 1));
+    expect(column.blocks).toHaveLength(2);
+    expect(column.blocks.filter((b) => b.ghost).map((b) => b.taskId)).toEqual([null]);
+    // The two share the hour, so they share the packing.
+    expect(column.blocks.every((b) => b.lanes === 2)).toBe(true);
+  });
+
+  it('return the same array until the data changes', () => {
+    useStore.setState({ boards: { b1: board() }, tasks: { t1: task() } });
+    const key = unscheduledKey('personal', 'priority');
+    const first = selectUnscheduled(useStore.getState(), key);
+    expect(selectUnscheduled(useStore.getState(), key)).toBe(first);
+    expect(selectUnscheduled(useStore.getState(), unscheduledKey('personal', 'duration'))).not.toBe(
+      first,
+    );
   });
 });

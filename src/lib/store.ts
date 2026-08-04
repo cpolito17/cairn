@@ -24,8 +24,16 @@ import { create } from 'zustand';
 import { blockedBy, lookupOf } from '../../shared/dependencies';
 import { boardProgress, type BoardProgress } from '../../shared/progress';
 import { midpoint } from '../../shared/order';
+import {
+  addDays,
+  groupByBoard,
+  layoutDays,
+  sortUnscheduled,
+  type DayLayout,
+  type TaskGroup,
+} from '../../shared/planner';
 import { DEFAULT_SETTINGS } from '../../shared/settings';
-import type { Board, Context, Settings, Task } from '../../shared/types';
+import type { Board, Context, PlannerSort, Settings, Task } from '../../shared/types';
 import { upNext } from '../../shared/upnext';
 import * as api from './api';
 import { ApiError } from './api';
@@ -430,6 +438,82 @@ export const selectBoardProgress = memoized((data: Data, boardId: string): Board
   boardProgress(Object.values(data.tasks).filter((task) => task.boardId === boardId)),
 );
 
+/* --- the planner ----------------------------------------------------------- */
+/*
+ * The Planner's derived lists, all of them here rather than in a component.
+ * The sorts, the grouping and the lane packing are `shared/planner.ts`; these
+ * selectors are what choose the tasks and hold the memo, so the list and the
+ * grid cannot disagree about which tasks belong to a context.
+ *
+ * The memo key is a string because `memoized` caches on one argument by
+ * identity, and every one of these takes more than one. Building it at the hook
+ * rather than passing an object is what keeps the cache hitting: a fresh object
+ * every render is a fresh cache miss every render, and the array it recomputes
+ * would re-render the subscriber forever.
+ */
+
+/** Tasks belonging to a context's **active** boards. Archived boards are put
+ *  away, and a schedule that keeps drawing their blocks has not put them away. */
+function tasksInContext(data: Data, context: Context): Task[] {
+  const boardIds = new Set(
+    Object.values(data.boards)
+      .filter((board) => board.context === context && board.archivedAt === null)
+      .map((board) => board.id),
+  );
+  return Object.values(data.tasks).filter((task) => boardIds.has(task.boardId));
+}
+
+/** `context|sort`, the key both unscheduled selectors take. */
+export function unscheduledKey(context: Context, sort: PlannerSort): string {
+  return `${context}|${sort}`;
+}
+
+/**
+ * The unscheduled task list (§6.2): incomplete and unscheduled, from every
+ * non-archived board in the context, in the chosen order.
+ *
+ * Blocked and dependency-gated tasks are **in** this list — the row recesses
+ * them, it does not drop them. Planning to do something after its prerequisite
+ * clears is legitimate; the gate that matters is on completion, and it lives in
+ * `shared/dependencies.ts`.
+ */
+export const selectUnscheduled = memoized((data: Data, key: string): Task[] => {
+  const [context, sort] = key.split('|') as [Context, PlannerSort];
+  return sortUnscheduled(
+    tasksInContext(data, context).filter(
+      (task) => task.completedAt === null && task.scheduledAt === null,
+    ),
+    sort,
+  );
+});
+
+/** The same list under board headings, in board order (§6.2). */
+export const selectUnscheduledGroups = memoized((data: Data, key: string): TaskGroup[] => {
+  const [context, sort] = key.split('|') as [Context, PlannerSort];
+  return groupByBoard(selectUnscheduled(data, key), selectBoardsFor(data, context), sort);
+});
+
+/** `context|firstDayMs|dayCount`, the key the schedule selector takes. */
+export function scheduleKey(context: Context, firstDay: number, dayCount: number): string {
+  return `${context}|${firstDay}|${dayCount}`;
+}
+
+/**
+ * The day columns of the schedule: the context's own blocks and the other
+ * context's ghosts, packed together (§6.3).
+ *
+ * The other context is `other`, not "every task that is not mine": a task on an
+ * archived board is nobody's ghost.
+ */
+export const selectSchedule = memoized((data: Data, key: string): DayLayout[] => {
+  const [context, firstDay, dayCount] = key.split('|');
+  const start = Number(firstDay);
+  const days = Array.from({ length: Number(dayCount) }, (_, index) => addDays(start, index));
+  const mine = context as Context;
+  const theirs: Context = mine === 'personal' ? 'work' : 'personal';
+  return layoutDays(days, tasksInContext(data, mine), tasksInContext(data, theirs));
+});
+
 /* --- hooks ----------------------------------------------------------------- */
 
 export const useBoards = (context: Context): Board[] =>
@@ -452,6 +536,20 @@ export const useUpNext = (context: Context): Task[] =>
   useStore((state) => selectUpNext(state, context));
 
 export const useSettings = (): Settings => useStore((state) => state.settings);
+
+export const useUnscheduled = (context: Context, sort: PlannerSort): Task[] =>
+  useStore((state) => selectUnscheduled(state, unscheduledKey(context, sort)));
+
+export const useUnscheduledGroups = (context: Context, sort: PlannerSort): TaskGroup[] =>
+  useStore((state) => selectUnscheduledGroups(state, unscheduledKey(context, sort)));
+
+/** The day columns the grid draws, `dayCount` days from `firstDay` (§6.3). */
+export const useSchedule = (
+  context: Context,
+  firstDay: number,
+  dayCount: number,
+): DayLayout[] =>
+  useStore((state) => selectSchedule(state, scheduleKey(context, firstDay, dayCount)));
 
 export const useBoardProgress = (boardId: string): BoardProgress =>
   useStore((state) => selectBoardProgress(state, boardId));

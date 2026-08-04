@@ -356,6 +356,55 @@
     transition: opacity 200ms var(--ease-out);
   }
 
+  /* The Planner's two panes (V2 §6.1): the unscheduled list at a fixed 300px
+     and the schedule taking the rest, above the Planner's own wide breakpoint.
+     Below it the list is a bottom sheet and this is one column — which is also
+     why the grid is `minmax(0, 1fr)` rather than `1fr`: a grid track's default
+     `min-width: auto` refuses to shrink below its content, and the one piece of
+     content here is a seven-column schedule, so `1fr` would push the page into
+     a horizontal scroll at exactly the widths this layout exists to serve. */
+  .planner-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-6);
+  }
+
+  @media (min-width: 1024px) {
+    .planner-layout {
+      grid-template-columns: 300px minmax(0, 1fr);
+      align-items: start;
+      gap: var(--space-8);
+    }
+  }
+
+  /* The list pane scrolls with the page rather than in its own box: it is the
+     shorter of the two columns, and a second scroll region beside the grid's is
+     one scroll region too many on a trackpad. */
+  .planner-pane {
+    min-width: 0;
+  }
+
+  /* §8.5 gates every hover affordance — a touch device false-positives hover on
+     tap, and a block that stays lit after a tap is the tell. Opacity only; the
+     block's geometry is its data and nothing may nudge it. */
+  @media (hover: hover) and (pointer: fine) {
+    .planner-block:hover {
+      opacity: 0.88;
+    }
+  }
+
+  .planner-block {
+    transition: opacity 160ms var(--ease-out);
+  }
+
+  /* The grid's own scroll box. `overscroll-behavior` keeps a flick at the top
+     of the schedule from scrolling the page behind it, which on iOS is the
+     difference between paging the day and bouncing the whole app. */
+  .planner-scroll {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
   /* §8.4 skeleton shimmer: a band travelling across the block by transform. */
   .cairn-shimmer {
     position: absolute;
