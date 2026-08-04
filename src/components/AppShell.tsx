@@ -7,8 +7,10 @@
  * line under its header at all.
  *
  * Contents: the wordmark, or a compact back affordance once the user is a level
- * deep · the Personal/Work segmented control, centered · a trailing overflow
- * menu with the theme toggle, archived boards, and log out. On narrow viewports
+ * deep · the Personal/Work segmented control, centered · a trailing settings
+ * menu, under a gear, with the theme cycle, archived boards, and log out. The
+ * theme shown there is the *active context's* — each tab keeps its own, so
+ * switching tabs can change the whole palette. On narrow viewports
  * the segmented control drops to a full-width second line rather than
  * compressing — one control, moved by the grid in `index.css`, not two
  * instances fighting over the same `layoutId`.
@@ -21,8 +23,8 @@ import {
   Archive,
   CaretLeft,
   CloudSlash,
-  DotsThreeVertical,
   Drop,
+  Gear,
   Moon,
   SignOut,
   Sun,
@@ -207,13 +209,13 @@ function OverflowMenu({ onSignedOut }: { onSignedOut(): void }) {
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="More"
+        aria-label="Settings"
         onClick={() => setOpen((was) => !was)}
         className="pressable -mr-2 flex items-center justify-center rounded-chip
                    text-text-secondary"
         style={{ width: 'var(--tap-target)', height: 'var(--tap-target)' }}
       >
-        <DotsThreeVertical size={20} weight="bold" />
+        <Gear size={20} />
       </button>
 
       <AnimatePresence>

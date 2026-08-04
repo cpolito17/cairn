@@ -27,7 +27,14 @@ import type { Board, Context, Task } from '../../shared/types';
 import { upNext } from '../../shared/upnext';
 import * as api from './api';
 import { ApiError } from './api';
-import { applyTheme, initialTheme, nextTheme, storeTheme, type Theme } from './theme';
+import {
+  applyTheme,
+  initialTheme,
+  nextTheme,
+  readStoredTheme,
+  storeTheme,
+  type Theme,
+} from './theme';
 import { toast } from './toasts';
 
 /* --- shape ----------------------------------------------------------------- */
@@ -135,6 +142,7 @@ function storeContext(context: Context): void {
 export interface AppStore extends Data {
   status: Status;
   context: Context;
+  /** The active context's theme. Each context keeps its own (§8.2). */
   theme: Theme;
   online: boolean;
 
@@ -145,10 +153,11 @@ export interface AppStore extends Data {
   mutate<R>(spec: MutationSpec<R>): Promise<boolean>;
 
   setContext(context: Context): void;
+  /** Set the *active context's* theme. The other context is untouched. */
   setTheme(theme: Theme): void;
   /** Advance to the next theme in `THEMES`. The menu's only theme control. */
   cycleTheme(): void;
-  /** Follow the system preference — only used while no override is stored. */
+  /** Follow the system preference — ignored once this context has an override. */
   followSystemTheme(theme: Theme): void;
   setOnline(online: boolean): void;
   /** Drop every entity. Called when the session is lost. */
@@ -158,7 +167,12 @@ export interface AppStore extends Data {
 // Applied from module scope rather than an effect: an effect lands after the
 // first paint, and one frame of the wrong theme is exactly what this avoids.
 // Outside a browser — the unit tests — there is nothing to apply it to.
-const bootTheme: Theme = typeof window === 'undefined' ? 'dark' : initialTheme();
+//
+// The theme is the *booting context's*, so the context has to be resolved
+// first. That ordering is the whole of what makes a per-context theme land
+// without a flash on a reload into the Work tab.
+const bootContext: Context = typeof localStorage === 'undefined' ? 'personal' : readStoredContext();
+const bootTheme: Theme = typeof window === 'undefined' ? 'dark' : initialTheme(bootContext);
 if (typeof document !== 'undefined') applyTheme(bootTheme);
 
 let inFlightLoad: Promise<void> | null = null;
@@ -167,7 +181,7 @@ export const useStore = create<AppStore>((set, get) => ({
   status: 'loading',
   boards: {},
   tasks: {},
-  context: typeof localStorage === 'undefined' ? 'personal' : readStoredContext(),
+  context: bootContext,
   theme: bootTheme,
   online: typeof navigator === 'undefined' ? true : navigator.onLine,
 
@@ -227,11 +241,16 @@ export const useStore = create<AppStore>((set, get) => ({
   setContext(context) {
     if (get().context === context) return;
     storeContext(context);
-    set({ context });
+    // The theme belongs to the context, so switching tabs re-applies that
+    // tab's — its own override if it has one, the system preference if not.
+    // Both go through `set` together so the two never disagree for a render.
+    const theme = initialTheme(context);
+    applyTheme(theme);
+    set({ context, theme });
   },
 
   setTheme(theme) {
-    storeTheme(theme);
+    storeTheme(get().context, theme);
     applyTheme(theme);
     set({ theme });
   },
@@ -241,6 +260,10 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   followSystemTheme(theme) {
+    // The OS flipping is not an instruction in a context the user has already
+    // made a choice in — and it says nothing at all about the other context,
+    // which keeps whatever it had.
+    if (readStoredTheme(get().context) !== null) return;
     applyTheme(theme);
     set({ theme });
   },
