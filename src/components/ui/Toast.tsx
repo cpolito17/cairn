@@ -13,6 +13,7 @@
 
 import { ArrowClockwise, CheckCircle, Info, WarningCircle, X } from '@phosphor-icons/react';
 import { AnimatePresence, motion } from 'motion/react';
+import { UI_SPRING } from '../../lib/motion';
 import { useToasts, type Toast, type ToastTone } from '../../lib/toasts';
 
 /** How far each card behind the front one is offset and shrunk. */
@@ -95,7 +96,11 @@ function ToastCard({
         opacity: depth > 2 ? 0 : 1,
       }}
       exit={{ y: 24, opacity: 0 }}
-      transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
+      // A toast is swiped, so it springs rather than tweening (§8.5) — and it
+      // is the default UI spring, 1.0 damping / 0.3 response, stated in
+      // `visualDuration` so 0.3 means the response §8.5 names and not the
+      // spring's total settle time, which is what plain `duration` would set.
+      transition={UI_SPRING}
       drag={front ? 'y' : false}
       dragConstraints={{ top: 0, bottom: 0 }}
       dragElastic={{ top: 0, bottom: 0.7 }}

@@ -26,9 +26,7 @@ import { useStore, useUpNext } from '../lib/store';
 import type { Context, Task } from '../../shared/types';
 import { Skeleton } from './ui/Skeleton';
 import { Collapsible, SectionHeader } from './ui/Section';
-
-/** §8.5 standard out curve. */
-const OUT = [0.23, 1, 0.32, 1] as const;
+import { OUT } from '../lib/motion';
 
 export function UpNext({ context }: { context: Context }) {
   const tasks = useUpNext(context);

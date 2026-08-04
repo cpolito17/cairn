@@ -33,9 +33,7 @@ import { navigate, useRoute } from '../lib/router';
 import { useStore } from '../lib/store';
 import { CONTEXTS, type Context } from '../../shared/types';
 import { Segmented } from './ui/Segmented';
-
-/** §8.5 standard out curve. */
-const OUT = [0.23, 1, 0.32, 1] as const;
+import { OUT } from '../lib/motion';
 
 const CONTEXT_OPTIONS = CONTEXTS.map((value) => ({
   value,
@@ -269,8 +267,12 @@ function MenuItem({
       type="button"
       role="menuitem"
       onClick={onClick}
-      className="pressable flex w-full items-center gap-3 px-4 text-left text-body text-text
-                 hover:bg-surface-2"
+      // `hoverable` rather than a bare `hover:` utility: §8.5 gates every hover
+      // effect behind `(hover: hover) and (pointer: fine)`, and an ungated one
+      // sticks on after a tap on a touch device — the menu item stays lit until
+      // something else is touched.
+      className="pressable hoverable flex w-full items-center gap-3 px-4 text-left text-body
+                 text-text"
       style={{ minHeight: 'var(--tap-target)' }}
     >
       <span className="text-text-secondary">{icon}</span>

@@ -22,9 +22,7 @@ import { EmptyLine, ErrorLine, SectionHeader } from '../components/ui/Section';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { claimColdLoad, staggerDelay } from '../lib/coldload';
 import { useBoards, useStore } from '../lib/store';
-
-/** §8.5 standard out curve. */
-const OUT = [0.23, 1, 0.32, 1] as const;
+import { OUT } from '../lib/motion';
 
 export function ContextHome() {
   const context = useStore((state) => state.context);
