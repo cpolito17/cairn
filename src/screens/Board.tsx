@@ -5,9 +5,11 @@
  * tasks → quick add → the Completed group. Both lists come from the store's
  * selectors; nothing here sorts.
  *
- * Two things are deliberately absent because they belong to issue 6: the rows
- * are not draggable, and completing a task re-renders it into the Completed
- * group without the travelling animation.
+ * The two lists share one `FlipProvider`, and that is the whole reason
+ * completion is one continuous movement rather than a disappearance followed by
+ * an appearance: a completed row is a different DOM node in a different list
+ * after the commit, and only a group that spans both can carry it across
+ * (§8.5, §6.5).
  *
  * The error state keeps the header and the quick add alive (§9.4) — a failed
  * read is not a reason to take away the ability to jot the thing down.
@@ -19,13 +21,15 @@ import { DeleteConfirm } from '../components/DeleteConfirm';
 import { BoardEditor } from '../components/BoardEditor';
 import { NumberTicker, ProgressBar } from '../components/ProgressBar';
 import { QuickAdd } from '../components/QuickAdd';
+import { Reorderable } from '../components/Reorderable';
 import { TaskComposer } from '../components/TaskComposer';
-import { TaskRow, useHighlight } from '../components/TaskRow';
+import { settleAppearance, TaskRow, useHighlight } from '../components/TaskRow';
 import { Button } from '../components/ui/Button';
 import { Menu, MenuItem } from '../components/ui/Menu';
 import { Collapsible, EmptyLine, ErrorLine, SectionHeader } from '../components/ui/Section';
 import { Skeleton, SkeletonRow } from '../components/ui/Skeleton';
-import { toggleComplete, tasksOfBoard } from '../lib/actions';
+import { FlipItem, FlipProvider, useFlipGroup } from '../lib/flip';
+import { reorderTask, toggleComplete, tasksOfBoard } from '../lib/actions';
 import { completedKey, usePersistedCollapse } from '../lib/collapse';
 import { consumeNavState, Link, navigate } from '../lib/router';
 import {
@@ -66,6 +70,18 @@ export function Board({ id }: { id: string }) {
     setTarget(consumeNavState()?.highlightTaskId ?? null);
   }, [id]);
   const highlighted = useHighlight(target);
+
+  // The group spans both lists, so it is owned here rather than by either of
+  // them. Holding it here is also what lets the screen tell it when *not* to
+  // animate: §8.5 gives keyboard-initiated actions no animation, ever.
+  const flip = useFlipGroup();
+  function onToggle(task: Task, viaKeyboard: boolean) {
+    if (viaKeyboard) {
+      flip.skipNext();
+      settleAppearance(task.id, task.completedAt === null);
+    }
+    toggleComplete(task);
+  }
 
   if (status === 'loading') return <BoardSkeleton />;
 
@@ -156,61 +172,73 @@ export function Board({ id }: { id: string }) {
         </p>
       </header>
 
-      {status === 'error' ? (
-        <BoardError />
-      ) : (
-        <section>
-          <ul>
-            {active.map((task) => (
-              <li key={task.id}>
+      <FlipProvider group={flip}>
+        {status === 'error' ? (
+          <BoardError />
+        ) : (
+          <section>
+            {/* §6.6: the active list is the draggable one. The Completed group
+                below is not a valid drop target, which is what `refuseBelow`
+                tells the gesture to show at that boundary (§8.5). */}
+            <Reorderable
+              items={active}
+              getKey={(task) => task.id}
+              onReorder={reorderTask}
+              refuseBelow={completed.length > 0}
+              aria-label="Active tasks"
+            >
+              {(task) => (
                 <TaskRow
                   task={task}
                   highlighted={highlighted === task.id}
                   onOpen={(it) => setComposer({ mode: 'edit', task: it })}
-                  onToggle={toggleComplete}
+                  onToggle={onToggle}
                 />
-              </li>
-            ))}
-          </ul>
+              )}
+            </Reorderable>
 
-          {active.length === 0 && (
-            <p className="py-6 text-body text-text-secondary">
-              {allComplete ? 'Everything here is done.' : 'No tasks yet. Add the first one.'}
-            </p>
-          )}
-        </section>
-      )}
+            {active.length === 0 && (
+              <p className="py-6 text-body text-text-secondary">
+                {allComplete ? 'Everything here is done.' : 'No tasks yet. Add the first one.'}
+              </p>
+            )}
+          </section>
+        )}
 
-      <QuickAdd
-        boardId={id}
-        autoFocus={status === 'ready' && active.length === 0 && completed.length === 0}
-        onExpand={(prefill) => setComposer({ mode: 'create', prefill })}
-      />
+        <QuickAdd
+          boardId={id}
+          autoFocus={status === 'ready' && active.length === 0 && completed.length === 0}
+          onExpand={(prefill) => setComposer({ mode: 'create', prefill })}
+        />
 
-      {completed.length > 0 && (
-        <section className="mt-section">
-          <SectionHeader
-            collapsed={collapsed}
-            onToggle={toggleCollapsed}
-            regionId="completed-group"
-          >
-            Completed · {completed.length}
-          </SectionHeader>
-          <Collapsible id="completed-group" collapsed={collapsed}>
-            <ul>
-              {completed.map((task) => (
-                <li key={task.id}>
-                  <TaskRow
-                    task={task}
-                    onOpen={(it) => setComposer({ mode: 'edit', task: it })}
-                    onToggle={toggleComplete}
-                  />
-                </li>
-              ))}
-            </ul>
-          </Collapsible>
-        </section>
-      )}
+        {completed.length > 0 && (
+          <section className="mt-section">
+            <SectionHeader
+              collapsed={collapsed}
+              onToggle={toggleCollapsed}
+              regionId="completed-group"
+            >
+              Completed · {completed.length}
+            </SectionHeader>
+            <Collapsible id="completed-group" collapsed={collapsed}>
+              <ul>
+                {/* Completed rows do not drag (§6.6) but they do have to move:
+                    they are what closes the gap when one of them is restored,
+                    and what makes room for one arriving. */}
+                {completed.map((task) => (
+                  <FlipItem key={task.id} flipKey={task.id}>
+                    <TaskRow
+                      task={task}
+                      onOpen={(it) => setComposer({ mode: 'edit', task: it })}
+                      onToggle={onToggle}
+                    />
+                  </FlipItem>
+                ))}
+              </ul>
+            </Collapsible>
+          </section>
+        )}
+      </FlipProvider>
 
       <TaskComposer
         open={composer.mode !== 'closed'}

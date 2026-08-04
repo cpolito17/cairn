@@ -14,6 +14,8 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { BoardCard } from '../components/BoardCard';
 import { BoardEditor } from '../components/BoardEditor';
+import { Reorderable } from '../components/Reorderable';
+import { reorderBoard } from '../lib/actions';
 import { UpNext, UpNextSkeleton } from '../components/UpNext';
 import { Button } from '../components/ui/Button';
 import { EmptyLine, ErrorLine, SectionHeader } from '../components/ui/Section';
@@ -68,13 +70,24 @@ export function ContextHome() {
           {boards.length} {boards.length === 1 ? 'Board' : 'Boards'}
         </SectionHeader>
 
-        <ul className="grid gap-3 md:grid-cols-2">
-          {boards.map((board, index) => (
-            <StaggeredCard key={board.id} index={index} boardId={board.id}>
+        {/* §6.6: board cards reorder by the same gesture the task rows use.
+            One column on narrow viewports, two on wide — the primitive reads
+            the geometry rather than being told, so the two-column case tracks
+            horizontally and the one-column case does not. */}
+        <Reorderable
+          items={boards}
+          getKey={(board) => board.id}
+          onReorder={reorderBoard}
+          className="grid gap-3 md:grid-cols-2"
+          liftRadius="var(--radius-card)"
+          aria-label="Boards"
+        >
+          {(board, { index }) => (
+            <StaggeredCard index={index} boardId={board.id}>
               <BoardCard board={board} />
             </StaggeredCard>
-          ))}
-        </ul>
+          )}
+        </Reorderable>
       </section>
 
       <BoardEditor
@@ -91,6 +104,10 @@ export function ContextHome() {
  * whole list on a return visit — appears without an entrance, which is the
  * point: the stagger says "this screen just arrived", and it would be a lie
  * the second time.
+ *
+ * It sits *inside* the list item rather than on it: the item's own transform
+ * belongs to the drag and to FLIP, and two owners of one transform is one
+ * owner too many.
  */
 function StaggeredCard({
   index,
@@ -104,13 +121,13 @@ function StaggeredCard({
   const [cold] = useState(() => claimColdLoad(`board-card:${boardId}`));
 
   return (
-    <motion.li
+    <motion.div
       initial={cold ? { opacity: 0, y: 8 } : false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.24, ease: OUT, delay: cold ? staggerDelay(index) : 0 }}
     >
       {children}
-    </motion.li>
+    </motion.div>
   );
 }
 

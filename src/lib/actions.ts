@@ -16,18 +16,22 @@ import {
   createTaskSpec,
   endOfBoard,
   endOfContext,
+  positionBetween,
+  reorderBoardSpec,
+  reorderTaskSpec,
   useStore,
   type NewTask,
 } from './store';
 import { toast } from './toasts';
-import type { Context, Task } from '../../shared/types';
+import type { Board, Context, Task } from '../../shared/types';
 import { createBoardSpec } from './store';
 
 /**
  * Complete or un-complete a task.
  *
- * The animated travel into the Completed group is issue 6; what happens here is
- * the state change, and the row re-renders in its new group.
+ * The row's travel into the Completed group is a consequence of this, not a
+ * step in it: the state change moves the row between two lists, and
+ * `lib/flip.ts` turns that layout change into one continuous movement (§8.5).
  */
 export function toggleComplete(task: Task): void {
   const store = useStore.getState();
@@ -75,6 +79,37 @@ export function addBoard(context: Context, name: string, description: string | n
       position: endOfContext(store, context),
     }),
   );
+}
+
+/**
+ * The position for a row dropped between two neighbours (§7.3).
+ *
+ * `midpoint` refuses neighbours that are out of order, which two devices can
+ * produce: the read order breaks ties on `id`, so a list can legitimately hold
+ * two rows with the same position string, and asking for a value strictly
+ * between them is unanswerable. Falling back to one open side keeps the drop
+ * where the user aimed it rather than dropping the gesture on the floor.
+ */
+function positionFor(before: Task | Board | null, after: Task | Board | null): string {
+  try {
+    return positionBetween(before?.position ?? null, after?.position ?? null);
+  } catch {
+    return before ? positionBetween(before.position, null) : positionBetween(null, null);
+  }
+}
+
+/**
+ * Persist a drag within a board's active list. Optimistic, on release, and
+ * rolled back visibly by `mutate()` if the write fails (§7.3) — the rollback is
+ * another commit, so the row *animates* home rather than snapping.
+ */
+export function reorderTask(task: Task, before: Task | null, after: Task | null): void {
+  void useStore.getState().mutate(reorderTaskSpec(task, positionFor(before, after)));
+}
+
+/** The same, for a board card on the context home (§6.6). */
+export function reorderBoard(board: Board, before: Board | null, after: Board | null): void {
+  void useStore.getState().mutate(reorderBoardSpec(board, positionFor(before, after)));
 }
 
 /** Every task of a board, active and completed — what a delete destroys. */
