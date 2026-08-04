@@ -1,5 +1,5 @@
 /**
- * The app shell. PROJECT-SPEC.md §9.2, §8.4, §8.5.
+ * The app shell. PROJECT-SPEC.md §9.2, §8.4, §8.5; PROJECT-SPEC-V2.md §4.
  *
  * A translucent header over scrolling content — backdrop blur with a solid
  * `--surface` fallback under `prefers-reduced-transparency`, and a scroll-edge
@@ -7,58 +7,50 @@
  * line under its header at all.
  *
  * Contents: the wordmark, or a compact back affordance once the user is a level
- * deep · the Personal/Work segmented control, centered · a trailing settings
- * menu, under a gear, with the theme cycle, archived boards, and log out. The
- * theme shown there is the *active context's* — each tab keeps its own, so
- * switching tabs can change the whole palette. On narrow viewports
- * the segmented control drops to a full-width second line rather than
- * compressing — one control, moved by the grid in `index.css`, not two
- * instances fighting over the same `layoutId`.
+ * deep, with the **active context named beneath either of them** · the
+ * Boards/Blockers/Planner segmented control, centered · the gear, which opens
+ * the settings sheet. On narrow viewports the segmented control drops to a
+ * full-width second line rather than compressing — one control, moved by the
+ * grid in `index.css`, not two instances fighting over the same `layoutId`.
+ *
+ * **The segmented control changed what it controls, in place** (V2 §4.1). It
+ * used to switch Personal/Work; it now switches view. It is the same component
+ * in the same grid slot with the same sliding thumb, because it is one control
+ * that changed its meaning rather than a new control that arrived beside the
+ * old one — and the context switch it gave up moved into the settings sheet.
+ *
+ * **That move is why the context label exists** (V2 §4.2). A mode you cannot
+ * see is a mode you file things into by accident, and the per-context theme
+ * only carries that for someone who has set two different ones. The label says
+ * it outright, on every route, and it stays when the wordmark is replaced by
+ * the back affordance — a level deep is exactly where "which tab am I in" is
+ * least obvious.
  *
  * Switching context is local state and nothing else: `/api/state` already holds
  * both contexts, so there is no fetch to make.
  */
 
-import {
-  Archive,
-  CaretLeft,
-  CloudSlash,
-  Drop,
-  Gear,
-  Moon,
-  SignOut,
-  Sun,
-  Tree,
-} from '@phosphor-icons/react';
+import { CaretLeft, CloudSlash, Gear } from '@phosphor-icons/react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import * as api from '../lib/api';
-import { navigate, useRoute } from '../lib/router';
+import { useEffect, useState, type ReactNode } from 'react';
+import { navigate, useRoute, VIEW_ROOTS, viewOf, type View } from '../lib/router';
 import { useStore } from '../lib/store';
-import { CONTEXTS, type Context } from '../../shared/types';
+import { SettingsSheet } from './SettingsSheet';
 import { Segmented } from './ui/Segmented';
 import { OUT } from '../lib/motion';
-import { THEME_LABELS, type Theme } from '../lib/theme';
 
-/** The glyph that stands for each theme in the menu row. */
-const THEME_ICONS: Record<Theme, ReactNode> = {
-  dark: <Moon size={20} />,
-  light: <Sun size={20} />,
-  ocean: <Drop size={20} />,
-  forest: <Tree size={20} />,
-};
-
-const CONTEXT_OPTIONS = CONTEXTS.map((value) => ({
-  value,
-  label: value === 'personal' ? 'Personal' : 'Work',
-}));
+const VIEW_OPTIONS: { value: View; label: string }[] = [
+  { value: 'boards', label: 'Boards' },
+  { value: 'blockers', label: 'Blockers' },
+  { value: 'planner', label: 'Planner' },
+];
 
 export function AppShell({ children, onSignedOut }: { children: ReactNode; onSignedOut(): void }) {
   const route = useRoute();
   const context = useStore((state) => state.context);
-  const setContext = useStore((state) => state.setContext);
   const online = useStore((state) => state.online);
   const [scrolled, setScrolled] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // The scroll-edge fade appears only once there is content behind the header.
   useEffect(() => {
@@ -68,7 +60,20 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  const deep = route.name !== 'home';
+  /**
+   * A level deep is `/board/:id` and `/archived` — the two routes that sit
+   * *under* Boards. Not `/blockers` or `/planner`: those are views of their
+   * own, reached from the selector, and a back affordance on them would offer
+   * to return from somewhere the user never descended into.
+   */
+  const deep = route.name === 'board' || route.name === 'archived';
+
+  /**
+   * Null only on `notFound`, where the selector is hidden rather than showing
+   * an arbitrary segment selected — a path that is not part of the app is not
+   * one of the three views, and claiming otherwise is worse than a gap.
+   */
+  const view = viewOf(route);
 
   return (
     <div className="min-h-dvh">
@@ -78,43 +83,79 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
       >
         <AnimatePresence>{!online && <OfflineIndicator />}</AnimatePresence>
 
-        <div className="app-header-grid px-gutter py-3">
+        <div className="app-header-grid px-gutter py-2">
           <div className="app-header-brand min-w-0">
-            {deep ? (
-              <button
-                type="button"
-                onClick={() => navigate('/')}
-                className="pressable -ml-2 inline-flex items-center gap-1 rounded-chip px-2
-                           py-2 text-text-secondary"
-                style={{ minHeight: 'var(--tap-target)' }}
-              >
-                <CaretLeft size={20} />
-                <span className="text-meta" style={{ fontWeight: 600 }}>
-                  Boards
+            {/* Both states share this line box, at the tap-target height the
+                back affordance needs. Letting the wordmark set its own height
+                would make the header jump by ~19px on every navigation into and
+                out of a board — a sticky header that resizes under a scrolled
+                page, which is the jarring change §8.5 exists to prevent. */}
+            <div className="flex items-center" style={{ minHeight: 'var(--tap-target)' }}>
+              {deep ? (
+                <button
+                  type="button"
+                  onClick={() => navigate('/')}
+                  className="pressable -ml-2 inline-flex items-center gap-1 rounded-chip px-2
+                             text-text-secondary"
+                  style={{ minHeight: 'var(--tap-target)' }}
+                >
+                  <CaretLeft size={20} />
+                  <span className="text-meta" style={{ fontWeight: 600 }}>
+                    Boards
+                  </span>
+                </button>
+              ) : (
+                <span
+                  className="block truncate text-board-title text-text"
+                  style={{ letterSpacing: '-0.02em' }}
+                >
+                  Cairn
                 </span>
-              </button>
-            ) : (
-              <span
-                className="text-board-title text-text"
-                style={{ letterSpacing: '-0.02em' }}
-              >
-                Cairn
-              </span>
-            )}
+              )}
+            </div>
+
+            {/* V2 §4.2: 12px/500 in --text-secondary, under whichever of the
+                two is showing. `aria-live` is deliberately absent — the context
+                changes only because the user just changed it, from a sheet that
+                closes to reveal this, so announcing it would be reading their
+                own action back to them. */}
+            <span
+              className="block truncate text-text-secondary"
+              style={{ fontSize: '12px', fontWeight: 500, lineHeight: 1.35 }}
+            >
+              {context === 'personal' ? 'Personal' : 'Work'}
+            </span>
           </div>
 
           <div className="app-header-segmented">
-            <Segmented
-              id="context"
-              label="Context"
-              options={CONTEXT_OPTIONS}
-              value={context}
-              onChange={(value: Context) => setContext(value)}
-            />
+            {view && (
+              <Segmented
+                id="view"
+                label="View"
+                options={VIEW_OPTIONS}
+                value={view}
+                // Selecting a view from `/board/:id` goes to that view's root,
+                // Boards included — which is what makes Boards a way back out
+                // of a board rather than a segment that is already lit and
+                // does nothing.
+                onChange={(next: View) => navigate(VIEW_ROOTS[next])}
+              />
+            )}
           </div>
 
           <div className="app-header-actions">
-            <OverflowMenu onSignedOut={onSignedOut} />
+            <button
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={settingsOpen}
+              aria-label="Settings"
+              onClick={() => setSettingsOpen(true)}
+              className="pressable -mr-2 flex items-center justify-center rounded-chip
+                         text-text-secondary"
+              style={{ width: 'var(--tap-target)', height: 'var(--tap-target)' }}
+            >
+              <Gear size={20} />
+            </button>
           </div>
         </div>
 
@@ -132,6 +173,12 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
       </header>
 
       <main className="px-gutter pt-section pb-12">{children}</main>
+
+      <SettingsSheet
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSignedOut={onSignedOut}
+      />
     </div>
   );
 }
@@ -160,147 +207,5 @@ function OfflineIndicator() {
         Offline
       </span>
     </motion.div>
-  );
-}
-
-/**
- * The trailing overflow menu. It scales from 0.96 with its transform origin at
- * the trigger — top right — rather than at its own center (§8.5).
- */
-function OverflowMenu({ onSignedOut }: { onSignedOut(): void }) {
-  const [open, setOpen] = useState(false);
-  const theme = useStore((state) => state.theme);
-  const cycleTheme = useStore((state) => state.cycleTheme);
-  const root = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-
-    function onPointerDown(event: PointerEvent) {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setOpen(false);
-    }
-
-    document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
-
-  async function logOut() {
-    setOpen(false);
-    try {
-      await api.logout();
-    } catch {
-      // Logout is idempotent server-side and the cookie clears either way, so a
-      // failed request still ends with the user signed out locally.
-    }
-    window.history.replaceState(null, '', '/');
-    onSignedOut();
-  }
-
-  return (
-    <div ref={root} className="relative">
-      <button
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label="Settings"
-        onClick={() => setOpen((was) => !was)}
-        className="pressable -mr-2 flex items-center justify-center rounded-chip
-                   text-text-secondary"
-        style={{ width: 'var(--tap-target)', height: 'var(--tap-target)' }}
-      >
-        <Gear size={20} />
-      </button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            role="menu"
-            className="absolute right-0 z-40 mt-1 overflow-hidden bg-surface py-1"
-            style={{
-              top: '100%',
-              minWidth: '200px',
-              borderRadius: 'var(--radius-control)',
-              border: 'var(--hairline-width) solid var(--hairline)',
-              boxShadow: 'var(--shadow-md)',
-              transformOrigin: 'top right',
-            }}
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.16, ease: OUT }}
-          >
-            {/* The theme row cycles rather than toggles, and deliberately does
-                not close the menu: picking between four themes means looking at
-                two or three of them, and a menu that shut on every tap would
-                make that four round trips through the overflow button. The
-                trailing label is the live answer to "which one am I on". */}
-            <MenuItem
-              icon={THEME_ICONS[theme]}
-              trailing={THEME_LABELS[theme]}
-              onClick={cycleTheme}
-            >
-              Theme
-            </MenuItem>
-
-            <MenuItem
-              icon={<Archive size={20} />}
-              onClick={() => {
-                setOpen(false);
-                navigate('/archived');
-              }}
-            >
-              Archived boards
-            </MenuItem>
-
-            <MenuItem icon={<SignOut size={20} />} onClick={logOut}>
-              Log out
-            </MenuItem>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function MenuItem({
-  icon,
-  onClick,
-  trailing,
-  children,
-}: {
-  icon: ReactNode;
-  onClick(): void;
-  /** Optional muted value at the end of the row — the theme row's current name. */
-  trailing?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      onClick={onClick}
-      // `hoverable` rather than a bare `hover:` utility: §8.5 gates every hover
-      // effect behind `(hover: hover) and (pointer: fine)`, and an ungated one
-      // sticks on after a tap on a touch device — the menu item stays lit until
-      // something else is touched.
-      className="pressable hoverable flex w-full items-center gap-3 px-4 text-left text-body
-                 text-text"
-      style={{ minHeight: 'var(--tap-target)' }}
-    >
-      <span className="text-text-secondary">{icon}</span>
-      <span className="flex-1">{children}</span>
-      {trailing !== undefined && (
-        <span className="text-meta text-text-secondary" style={{ fontWeight: 600 }}>
-          {trailing}
-        </span>
-      )}
-    </button>
   );
 }
