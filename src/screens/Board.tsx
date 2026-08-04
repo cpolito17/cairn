@@ -44,10 +44,7 @@ import {
 import type { Task } from '../../shared/types';
 
 /** Which dialog, if any, the screen has open. */
-type Composer =
-  | { mode: 'closed' }
-  | { mode: 'create'; prefill: string }
-  | { mode: 'edit'; task: Task };
+type Composer = { mode: 'closed' } | { mode: 'create' } | { mode: 'edit'; task: Task };
 
 export function Board({ id }: { id: string }) {
   const status = useStore((state) => state.status);
@@ -206,9 +203,8 @@ export function Board({ id }: { id: string }) {
         )}
 
         <QuickAdd
-          boardId={id}
           autoFocus={status === 'ready' && active.length === 0 && completed.length === 0}
-          onExpand={(prefill) => setComposer({ mode: 'create', prefill })}
+          onOpen={() => setComposer({ mode: 'create' })}
         />
 
         {completed.length > 0 && (
@@ -246,7 +242,6 @@ export function Board({ id }: { id: string }) {
         boardId={id}
         context={context}
         task={composer.mode === 'edit' ? composer.task : undefined}
-        prefillName={composer.mode === 'create' ? composer.prefill : ''}
       />
 
       {board && (

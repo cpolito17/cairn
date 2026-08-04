@@ -2,8 +2,13 @@
  * Design tokens — PROJECT-SPEC.md §8.2, §8.3, §8.4.
  *
  * This is the only file in the project allowed to contain a literal color.
- * Dark is the default and lives on :root; [data-theme="light"] overrides only
- * the values that change — the structure is identical between themes.
+ * Dark is the default and lives on :root; every other theme overrides only the
+ * values that change — the structure is identical between themes, so a
+ * component never asks which one is active.
+ *
+ * Four themes ship, cycled from the overflow menu (see src/lib/theme.ts, which
+ * owns the cycle order): Dark, Light, Ocean (dark, cool), Forest (light, warm).
+ * Adding a fifth is a block here plus an entry in THEMES — nothing else.
  */
 
 :root {
@@ -117,6 +122,54 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.14);
+
+  color-scheme: light;
+}
+
+/* Ocean — a cool, deep-water dark. Same structure as the default dark theme;
+   the hue rotates and the accent moves from ember to sky. */
+[data-theme='ocean'] {
+  --bg: #071219;
+  --surface: #0e1f2a;
+  --surface-2: #172d3a;
+  --text: #eaf4f9;
+  --text-secondary: #9ab4c2;
+  --text-tertiary: #647f8e;
+  --hairline: rgba(255, 255, 255, 0.09);
+  --accent: #38bdf8;
+  --accent-tint: rgba(56, 189, 248, 0.16);
+  --on-accent: #04202e;
+  --positive: #34d399;
+  --negative: #fb7185;
+  --scrim: rgba(2, 12, 18, 0.55);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.52);
+
+  color-scheme: dark;
+}
+
+/* Forest — a warm paper light theme with a green accent. Light's shadow ramp
+   rather than dark's: elevation on a pale surface is a shadow, not a step up. */
+[data-theme='forest'] {
+  --bg: #f6f7f1;
+  --surface: #ffffff;
+  --surface-2: #e8ede1;
+  --text: #16201a;
+  --text-secondary: #4e5f54;
+  --text-tertiary: #8a998f;
+  --hairline: rgba(20, 40, 28, 0.1);
+  --accent: #2f7d4f;
+  --accent-tint: rgba(47, 125, 79, 0.12);
+  --on-accent: #ffffff;
+  --positive: #15803d;
+  --negative: #b91c1c;
+  --scrim: rgba(18, 28, 20, 0.4);
+
+  --shadow-sm: 0 1px 2px rgba(20, 40, 28, 0.07);
+  --shadow-md: 0 6px 16px rgba(20, 40, 28, 0.11);
+  --shadow-lg: 0 16px 48px rgba(20, 40, 28, 0.15);
 
   color-scheme: light;
 }

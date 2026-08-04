@@ -27,7 +27,7 @@ import type { Board, Context, Task } from '../../shared/types';
 import { upNext } from '../../shared/upnext';
 import * as api from './api';
 import { ApiError } from './api';
-import { applyTheme, initialTheme, storeTheme, type Theme } from './theme';
+import { applyTheme, initialTheme, nextTheme, storeTheme, type Theme } from './theme';
 import { toast } from './toasts';
 
 /* --- shape ----------------------------------------------------------------- */
@@ -146,7 +146,8 @@ export interface AppStore extends Data {
 
   setContext(context: Context): void;
   setTheme(theme: Theme): void;
-  toggleTheme(): void;
+  /** Advance to the next theme in `THEMES`. The menu's only theme control. */
+  cycleTheme(): void;
   /** Follow the system preference — only used while no override is stored. */
   followSystemTheme(theme: Theme): void;
   setOnline(online: boolean): void;
@@ -235,8 +236,8 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ theme });
   },
 
-  toggleTheme() {
-    get().setTheme(get().theme === 'dark' ? 'light' : 'dark');
+  cycleTheme() {
+    get().setTheme(nextTheme(get().theme));
   },
 
   followSystemTheme(theme) {
