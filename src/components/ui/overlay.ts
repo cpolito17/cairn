@@ -6,7 +6,7 @@
  * the kind of thing that gets copied rather than fixed.
  */
 
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), ' +
@@ -17,6 +17,18 @@ export function useOverlay(
   onClose: () => void,
   container: RefObject<HTMLElement | null>,
 ): void {
+  // `onClose` is read through a ref rather than depended on.
+  //
+  // Callers define it in their render body — the composer's `requestClose`
+  // consults the live draft — so it is a different function on every render,
+  // and a render happens on every keystroke. With it in the dependency list
+  // this effect tore itself down and set itself up again on each one, which
+  // meant "focus the first thing inside" fired mid-typing and moved the caret
+  // from the field the user was typing in to the close button. The trap has to
+  // run once per *opening*, not once per render.
+  const close = useRef(onClose);
+  close.current = onClose;
+
   useEffect(() => {
     if (!open) return;
 
@@ -32,7 +44,7 @@ export function useOverlay(
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         event.stopPropagation();
-        onClose();
+        close.current();
         return;
       }
       if (event.key !== 'Tab' || !container.current) return;
@@ -59,5 +71,5 @@ export function useOverlay(
       document.body.style.overflow = overflow;
       opener?.focus?.();
     };
-  }, [open, onClose, container]);
+  }, [open, container]);
 }

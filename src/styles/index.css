@@ -139,6 +139,34 @@
     }
   }
 
+  /* The completion pop, used by the dashboard's check-off button once its fill
+     has finished loading. Transform only, and it overshoots and comes back
+     rather than ending large — the release is the satisfying half. */
+  @keyframes cairn-pop {
+    0% {
+      transform: scale(1);
+    }
+    55% {
+      transform: scale(1.28);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+
+  /* The ring thrown off by the pop. It starts at 0.9 rather than 0: §8.5 is
+     explicit that nothing in this app appears from nothing. */
+  @keyframes cairn-burst {
+    from {
+      transform: scale(0.9);
+      opacity: 0.45;
+    }
+    to {
+      transform: scale(1.9);
+      opacity: 0;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     /* §8.5 is precise here: reduced motion is "gentler, not zero" — opacity and
        colour fades that aid comprehension stay, movement goes. Zeroing every
