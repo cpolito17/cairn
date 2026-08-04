@@ -23,7 +23,6 @@ import * as api from './lib/api';
 import { setRedirect } from './lib/redirect';
 import { Link, useRoute } from './lib/router';
 import { subscribeToConnectivity, useStore } from './lib/store';
-import { watchSystemTheme } from './lib/theme';
 import { useToasts } from './lib/toasts';
 import { Archived } from './screens/Archived';
 import { Board } from './screens/Board';
@@ -90,10 +89,6 @@ function SignedIn({ onSignedOut }: { onSignedOut(): void }) {
   }, [load]);
 
   useEffect(() => subscribeToConnectivity(), []);
-
-  // The OS preference steers the theme only while the user has no override of
-  // their own; `watchSystemTheme` is what enforces that.
-  useEffect(() => watchSystemTheme((theme) => useStore.getState().followSystemTheme(theme)), []);
 
   return (
     // `reducedMotion="user"` makes every motion component honour

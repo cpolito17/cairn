@@ -25,9 +25,10 @@
  * forward direction had reached.
  */
 
-import { Check, Clock, Note, Prohibit, Timer, Flag } from '@phosphor-icons/react';
+import { Check, Clock, Note, Prohibit, Timer, Flag, LinkSimple } from '@phosphor-icons/react';
 import { useEffect, useState } from 'react';
 import { formatDuration, formatDue } from '../lib/dates';
+import { useBlockedBy } from '../lib/store';
 import type { Task } from '../../shared/types';
 import { Chip } from './ui/Chip';
 import { Pips } from './ui/Pips';
@@ -87,12 +88,18 @@ export function TaskRow({ task, onOpen, onToggle, highlighted = false }: TaskRow
   // transitions have somewhere to start from.
   const shown = useAppearance(task.id, done);
   const struck = useStrikeSettled(shown);
+  // The dependency gate (§6.4). A gated row reads as unavailable and its
+  // checkbox refuses — the rule is derived, so completing the prerequisite
+  // releases this row in the same render, with no second write.
+  const waiting = useBlockedBy(task.id);
 
   const nameColor = shown
     ? 'var(--text-tertiary)'
-    : task.blocked
-      ? 'var(--text-secondary)'
-      : 'var(--text)';
+    : waiting
+      ? 'var(--text-tertiary)'
+      : task.blocked
+        ? 'var(--text-secondary)'
+        : 'var(--text)';
 
   return (
     <div
@@ -109,6 +116,7 @@ export function TaskRow({ task, onOpen, onToggle, highlighted = false }: TaskRow
       <Checkbox
         checked={shown}
         name={task.name}
+        waitingOn={waiting?.name ?? null}
         onToggle={(viaKeyboard) => onToggle(task, viaKeyboard)}
       />
 
@@ -184,6 +192,11 @@ export function TaskRow({ task, onOpen, onToggle, highlighted = false }: TaskRow
             <Chip icon={<Prohibit size={16} />} muted={shown} aria-label="Blocked" />
           )}
           {task.notes && <Chip icon={<Note size={16} />} muted={shown} aria-label="Has notes" />}
+          {waiting && (
+            <Chip icon={<LinkSimple size={16} />} tone="secondary" muted={shown}>
+              Waiting on {waiting.name}
+            </Chip>
+          )}
         </span>
       </button>
     </div>
@@ -201,18 +214,33 @@ export function TaskRow({ task, onOpen, onToggle, highlighted = false }: TaskRow
 function Checkbox({
   checked,
   name,
+  waitingOn,
   onToggle,
 }: {
   checked: boolean;
   name: string;
+  /** The incomplete prerequisite's name, or null when there is none. */
+  waitingOn: string | null;
   onToggle(viaKeyboard: boolean): void;
 }) {
+  // Gated is `aria-disabled`, not `disabled`: a disabled control is skipped by
+  // the keyboard, and the reason it cannot be checked is exactly what a user
+  // arriving at this row needs to hear.
+  const gated = waitingOn !== null && !checked;
+
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={checked}
-      aria-label={checked ? `Mark "${name}" incomplete` : `Complete "${name}"`}
+      aria-disabled={gated || undefined}
+      aria-label={
+        gated
+          ? `"${name}" is waiting on "${waitingOn}"`
+          : checked
+            ? `Mark "${name}" incomplete`
+            : `Complete "${name}"`
+      }
       data-no-drag=""
       // `detail === 0` is a click the keyboard synthesised. It is the only
       // reliable way to tell Space and Enter from a thumb, and §8.5 wants them
@@ -229,9 +257,13 @@ function Checkbox({
           width: '24px',
           height: '24px',
           backgroundColor: checked ? 'var(--accent)' : 'transparent',
+          // A gated box is dashed rather than merely faint: faint reads as
+          // "low priority", dashed reads as "not yet", which is what it means.
           border: checked
             ? '1px solid var(--accent)'
-            : '1px solid color-mix(in srgb, var(--text-tertiary) 60%, transparent)',
+            : gated
+              ? '1px dashed color-mix(in srgb, var(--text-tertiary) 70%, transparent)'
+              : '1px solid color-mix(in srgb, var(--text-tertiary) 60%, transparent)',
           color: 'var(--on-accent)',
           transition: `background-color ${CHECK_MS}ms var(--ease-out), border-color ${CHECK_MS}ms var(--ease-out)`,
         }}

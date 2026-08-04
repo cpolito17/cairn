@@ -66,6 +66,7 @@ function task(over: Partial<Task> = {}): Task {
     difficulty: null,
     priority: false,
     blocked: false,
+    dependsOn: null,
     position: 'a1',
     createdAt: 1,
     completedAt: null,

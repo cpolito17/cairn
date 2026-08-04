@@ -208,6 +208,8 @@ export interface TaskDraft {
   difficulty?: Difficulty | null;
   priority?: boolean;
   blocked?: boolean;
+  /** Another task on the same board, or null. */
+  dependsOn?: string | null;
   position: string;
 }
 
@@ -220,6 +222,8 @@ export interface TaskPatch {
   difficulty?: Difficulty | null;
   priority?: boolean;
   blocked?: boolean;
+  /** Another task on the same board, or null to clear the link. */
+  dependsOn?: string | null;
   position?: string;
   boardId?: string;
   /** The client never sends a timestamp — the server clocks completion (§6.5). */

@@ -12,10 +12,12 @@
  * tabs re-applies that tab's theme; changing the theme in one leaves the other
  * exactly as it was.
  *
- * The rule is otherwise a two-stage one, and it is per context too: a context
- * follows `prefers-color-scheme` until the user picks a theme *in that
- * context*, then that pick wins forever after. So a stored value is an
- * *override*, not a cache of the current theme — nothing writes to it on boot,
+ * A context with no stored choice gets `DEFAULT_THEME` — Ocean. The app used to
+ * follow `prefers-color-scheme` until the user chose; it no longer does, and
+ * that is the point of having a named default. Ocean is neither of the two
+ * things the OS can ask for, so honouring the OS would mean the stated default
+ * never actually appeared for anyone whose system had an opinion, which is
+ * everyone. A stored value remains an *override*: nothing writes to it on boot,
  * and its absence is meaningful.
  *
  * `data-theme` on `<html>` is the only thing that flips the tokens, so it is
@@ -26,9 +28,16 @@
 import type { Context } from '../../shared/types';
 
 /** The cycle order, and the only source of truth for how many themes exist. */
-export const THEMES = ['dark', 'light', 'ocean', 'forest'] as const;
+export const THEMES = ['ocean', 'dark', 'light', 'forest'] as const;
 
 export type Theme = (typeof THEMES)[number];
+
+/**
+ * What a context looks like before the user has chosen. Kept in step with the
+ * `:root` block in tokens.css and with `data-theme` in index.html, which is
+ * what makes the first paint — the login screen — already correct.
+ */
+export const DEFAULT_THEME: Theme = 'ocean';
 
 /** What a theme is called in the menu. */
 export const THEME_LABELS: Record<Theme, string> = {
@@ -77,31 +86,11 @@ export function storeTheme(context: Context, theme: Theme): void {
   }
 }
 
-export function systemTheme(): Extract<Theme, 'dark' | 'light'> {
-  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-}
-
-/** A context's override if it has one, otherwise the system preference. */
+/** A context's override if it has one, otherwise the default. */
 export function initialTheme(context: Context): Theme {
-  return readStoredTheme(context) ?? systemTheme();
+  return readStoredTheme(context) ?? DEFAULT_THEME;
 }
 
 export function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
-}
-
-/**
- * Watch the OS preference and report it.
- *
- * Whether the report is *acted* on belongs to the store rather than here: the
- * "only while no override exists" rule is now per context, and the context is
- * the store's to know. See `followSystemTheme`.
- */
-export function watchSystemTheme(onChange: (theme: Theme) => void): () => void {
-  const query = window.matchMedia('(prefers-color-scheme: light)');
-  const listener = (event: MediaQueryListEvent) => {
-    onChange(event.matches ? 'light' : 'dark');
-  };
-  query.addEventListener('change', listener);
-  return () => query.removeEventListener('change', listener);
 }
