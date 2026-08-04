@@ -6,7 +6,7 @@ once before the first deploy, and again whenever you rotate the password.
 Cairn has no registration flow, no password reset, and no default password. The
 password exists in exactly one place: a Cloudflare Worker secret named
 `AUTH_PASSWORD`. On the first login attempt an isolate handles, the Worker
-derives a PBKDF2-SHA256 digest of the secret (150,000 iterations, fixed
+derives a PBKDF2-SHA256 digest of the secret (100,000 iterations, fixed
 application salt) and keeps it in memory for that isolate's lifetime. Every
 attempt is hashed with the same parameters and compared against that digest byte
 for byte in constant time — never against the plaintext, and never with an early
@@ -133,6 +133,7 @@ Every device is then sent back to the login screen on its next request.
 | Symptom | Cause | Fix |
 |---|---|---|
 | Every login returns a 500 | `AUTH_PASSWORD` not set on the deployed Worker | Step 2, then redeploy |
+| Every login returns a 500, but the secret *is* set | Worker logs show `Pbkdf2 failed: iteration counts above 100000 are not supported` — the runtime caps PBKDF2 at 100,000 and local `wrangler dev` does not enforce it | `PBKDF2_ITERATIONS` in `worker/auth.ts` must stay at 100,000; redeploy |
 | Login works locally but not in production | Secret set in `.dev.vars` only | Step 2 |
 | Logged out on every reload | Cookie rejected — usually a non-HTTPS origin | Use the real hostname, not an IP or `http://` |
 | Locked out after testing | Rate limiter still cooling off | Wait out the 15 minutes, or `DELETE FROM login_attempts` via the D1 command above |

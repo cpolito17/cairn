@@ -33,7 +33,18 @@ export const LOCKOUT_MS = 15 * 60 * 1000;
  * plaintext. The salt's job is domain separation, not per-record uniqueness.
  */
 const PBKDF2_SALT = new TextEncoder().encode('cairn.auth.v1');
-const PBKDF2_ITERATIONS = 150_000;
+/**
+ * 100,000 exactly, and it cannot be raised. The Workers runtime refuses PBKDF2
+ * above 100,000 iterations — `deriveBits` throws
+ * `Pbkdf2 failed: iteration counts above 100000 are not supported` — and that
+ * throw is not a `MissingPasswordError`, so it escapes `login()` and every
+ * attempt becomes an opaque 500. Local `workerd` does not enforce the cap, so
+ * this only ever shows up against a deployed Worker.
+ *
+ * It is also the floor the security work was specified against, so 100,000 is
+ * the one value that satisfies both the requirement and the platform.
+ */
+const PBKDF2_ITERATIONS = 100_000;
 const PBKDF2_BITS = 256;
 
 /**
