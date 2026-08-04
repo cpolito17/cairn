@@ -14,7 +14,7 @@
 
 import { AnimatePresence, motion } from 'motion/react';
 import { CaretDown } from '@phosphor-icons/react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 /** §8.5 standard out curve. */
 const OUT = [0.23, 1, 0.32, 1] as const;
@@ -86,16 +86,23 @@ export function Collapsible({
   collapsed: boolean;
   children: ReactNode;
 }) {
+  // The clip is only wanted while the height is moving. Left on permanently it
+  // would cut the top off a task row travelling down into the Completed group,
+  // which is exactly the disappear-and-reappear §8.5 forbids.
+  const [clipping, setClipping] = useState(false);
+
   return (
     <AnimatePresence initial={false}>
       {!collapsed && (
         <motion.div
           id={id}
-          className="overflow-hidden"
+          style={{ overflow: clipping ? 'hidden' : 'visible' }}
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: 'auto', opacity: 1 }}
           exit={{ height: 0, opacity: 0 }}
           transition={{ duration: 0.24, ease: OUT }}
+          onAnimationStart={() => setClipping(true)}
+          onAnimationComplete={() => setClipping(false)}
         >
           {children}
         </motion.div>

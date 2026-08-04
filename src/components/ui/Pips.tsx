@@ -36,7 +36,9 @@ export function Pips({ value, muted = false }: { value: Difficulty; muted?: bool
       className="inline-flex shrink-0 items-center gap-[2px]"
       role="img"
       aria-label={`Difficulty ${value} of 5`}
-      style={muted ? { opacity: 0.55 } : undefined}
+      // Crossfades with the rest of the row's metadata on completion (§8.5).
+      data-motion="essential"
+      style={{ opacity: muted ? 0.55 : 1, transition: 'opacity 150ms var(--ease-out)' }}
     >
       {LEVELS.map((level) => (
         <Pip key={level} filled={level <= value} color="var(--text-secondary)" />

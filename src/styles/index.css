@@ -169,6 +169,22 @@
     transform: scale(0.97);
   }
 
+  /* A row being dragged is lifted, not pressed. Without this the press scale
+     composes with the 1.02 lift, and on touch — where the button stays
+     `:active` for the whole gesture after the long press — the row would drag
+     around at 0.97 the entire time. */
+  [data-dragging] .pressable:active {
+    transform: none;
+  }
+
+  /* §8.5 gates every hover effect, and a grab cursor is one: it is a promise
+     that only a fine pointer can collect on. */
+  @media (hover: hover) and (pointer: fine) {
+    [data-reorderable-row]:hover {
+      cursor: grab;
+    }
+  }
+
   /* §8.5: every hover effect is gated — a touch device false-positives hover
      on tap, and a row that stays "hovered" after a tap is the tell. */
   @media (hover: hover) and (pointer: fine) {

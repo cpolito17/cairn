@@ -40,7 +40,11 @@ export function Chip({ icon, tone = 'secondary', muted = false, children, ...res
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-1 text-meta ${TONES[tone]}`}
-      style={muted ? { opacity: 0.55 } : undefined}
+      // §8.5: the chips crossfade to their completed contrast over ~150ms
+      // rather than switching. An opacity fade aids comprehension, so it is one
+      // of the things `prefers-reduced-motion` keeps.
+      data-motion="essential"
+      style={{ opacity: muted ? 0.55 : 1, transition: 'opacity 150ms var(--ease-out)' }}
       {...rest}
     >
       {icon}
