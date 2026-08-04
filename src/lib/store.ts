@@ -41,6 +41,18 @@ export interface Data {
 
 export type Status = 'loading' | 'ready' | 'error';
 
+/**
+ * Why the load failed, when it did.
+ *
+ * The distinction is not cosmetic. "The connection may have dropped" sent the
+ * owner looking at their network while every device was online and the server
+ * was answering 500s — the copy was confidently wrong, and it cost real time.
+ * A request that never left the device is `offline`; a server that answered
+ * with a failure is `server`, and those are different problems with different
+ * next steps.
+ */
+export type LoadFailure = 'offline' | 'server';
+
 export interface EntityRef {
   kind: 'board' | 'task';
   id: string;
@@ -135,6 +147,8 @@ function storeContext(context: Context): void {
 
 export interface AppStore extends Data {
   status: Status;
+  /** Set alongside `status: 'error'`, null otherwise. */
+  failure: LoadFailure | null;
   context: Context;
   /** The active context's theme. Each context keeps its own (§8.2). */
   theme: Theme;
@@ -172,6 +186,7 @@ let inFlightLoad: Promise<void> | null = null;
 
 export const useStore = create<AppStore>((set, get) => ({
   status: 'loading',
+  failure: null,
   boards: {},
   tasks: {},
   context: bootContext,
@@ -182,12 +197,13 @@ export const useStore = create<AppStore>((set, get) => ({
     if (get().status === 'ready') return Promise.resolve();
     if (inFlightLoad) return inFlightLoad;
 
-    set({ status: 'loading' });
+    set({ status: 'loading', failure: null });
     inFlightLoad = api
       .getState()
       .then(({ boards, tasks }) => {
         set({
           status: 'ready',
+          failure: null,
           boards: Object.fromEntries(boards.map((board) => [board.id, board])),
           tasks: Object.fromEntries(tasks.map((task) => [task.id, task])),
         });
@@ -196,7 +212,12 @@ export const useStore = create<AppStore>((set, get) => ({
         // A 401 is not a load error the user can retry — the session-lost
         // signal has already fired and the app is on its way to the login
         // screen. Anything else is an error state with a retry.
-        if (!(err instanceof ApiError && err.status === 401)) set({ status: 'error' });
+        if (err instanceof ApiError && err.status === 401) return;
+        // `status: 0` is the transport never reaching the server (§6.8);
+        // anything else is a reply, and a reply that failed is the server's.
+        const failure: LoadFailure =
+          err instanceof ApiError && err.unreachable ? 'offline' : 'server';
+        set({ status: 'error', failure });
       })
       .finally(() => {
         inFlightLoad = null;
@@ -259,7 +280,7 @@ export const useStore = create<AppStore>((set, get) => ({
 
   reset() {
     inFlightLoad = null;
-    set({ status: 'loading', boards: {}, tasks: {} });
+    set({ status: 'loading', failure: null, boards: {}, tasks: {} });
   },
 }));
 

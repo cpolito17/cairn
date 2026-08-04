@@ -131,3 +131,21 @@ export function ErrorLine({ children, action }: { children: ReactNode; action?: 
     </div>
   );
 }
+
+/**
+ * What a failed load says, given why it failed.
+ *
+ * One sentence naming what did not load, one naming the likely cause. The
+ * second sentence is the whole point of the split: telling someone whose
+ * connection is fine that their connection dropped sends them to debug the
+ * wrong thing, which is exactly what happened when a Worker started answering
+ * 500s and every screen blamed the network.
+ */
+export function loadErrorMessage(
+  subject: string,
+  failure: 'offline' | 'server' | null,
+): string {
+  return failure === 'server'
+    ? `Couldn’t load ${subject}. The server responded with an error — this is not your connection.`
+    : `Couldn’t load ${subject}. The connection may have dropped.`;
+}

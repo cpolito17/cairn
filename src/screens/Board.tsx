@@ -26,7 +26,13 @@ import { TaskComposer } from '../components/TaskComposer';
 import { settleAppearance, TaskRow, useHighlight } from '../components/TaskRow';
 import { Button } from '../components/ui/Button';
 import { Menu, MenuItem } from '../components/ui/Menu';
-import { Collapsible, EmptyLine, ErrorLine, SectionHeader } from '../components/ui/Section';
+import {
+  Collapsible,
+  EmptyLine,
+  ErrorLine,
+  loadErrorMessage,
+  SectionHeader,
+} from '../components/ui/Section';
 import { Skeleton, SkeletonRow } from '../components/ui/Skeleton';
 import { FlipItem, FlipProvider, useFlipGroup } from '../lib/flip';
 import { reorderTask, toggleComplete, tasksOfBoard } from '../lib/actions';
@@ -299,6 +305,7 @@ function BoardSkeleton() {
 
 function BoardError() {
   const load = useStore((state) => state.load);
+  const failure = useStore((state) => state.failure);
   return (
     <ErrorLine
       action={
@@ -307,7 +314,7 @@ function BoardError() {
         </Button>
       }
     >
-      Couldn&rsquo;t load this board&rsquo;s tasks. The connection may have dropped.
+      {loadErrorMessage('this board’s tasks', failure)}
     </ErrorLine>
   );
 }
