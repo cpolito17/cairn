@@ -100,7 +100,10 @@ export function TaskRow({ task, onOpen, onToggle, highlighted = false }: TaskRow
       style={{
         minHeight: 'var(--row-height)',
         backgroundColor: highlighted ? 'var(--accent-tint)' : 'transparent',
-        transition: 'background-color 420ms var(--ease-out)',
+        // §8.5's ceiling is hard: no UI animation exceeds 300ms. The tint is
+        // held for 1.6s by `useHighlight` — the dwell is what makes the row
+        // findable, not a slow fade, so shortening this costs nothing.
+        transition: 'background-color 240ms var(--ease-out)',
       }}
     >
       <Checkbox

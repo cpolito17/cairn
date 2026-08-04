@@ -9,9 +9,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useRef, type ReactNode } from 'react';
 import { useOverlay } from './overlay';
-
-/** §8.5 standard out curve. */
-const OUT = [0.23, 1, 0.32, 1] as const;
+import { OUT } from '../../lib/motion';
 
 export interface ModalProps {
   open: boolean;

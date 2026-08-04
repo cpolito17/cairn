@@ -14,8 +14,31 @@
 export const OUT_CURVE = 'cubic-bezier(0.23, 1, 0.32, 1)';
 export const OUT = [0.23, 1, 0.32, 1] as const;
 
+/** §8.5 drawer curve — sheets and drawers. */
+export const DRAWER = [0.32, 0.72, 0, 1] as const;
+
+/**
+ * Every spring below is written in `visualDuration`/`bounce`, never `duration`.
+ * The distinction is not cosmetic: Motion's `duration` is the spring's *total*
+ * settle time, while `visualDuration` is the time the movement is perceived to
+ * take — which is what §8.5 means by "response". The same 0.3 written the two
+ * ways produces two visibly different springs, so mixing them is how a "0.3
+ * response" ends up not being one.
+ */
+
 /** Displaced rows moving out of the way of a drag: damping 1.0, response 0.35. */
 export const REPOSITION = { type: 'spring', visualDuration: 0.35, bounce: 0 } as const;
+
+/** The default UI spring: damping 1.0, response 0.3. Crisp, no overshoot. */
+export const UI_SPRING = { type: 'spring', visualDuration: 0.3, bounce: 0 } as const;
+
+/**
+ * Sheets: damping 0.8, response 0.3 (§8.5). The only motion in the app with any
+ * overshoot at all, and it is earned — a sheet is dragged, so its dismissal
+ * carries the flick's momentum and stopping dead would be the seam §8.5 is
+ * written to remove. `bounce: 0.2` is damping 0.8, inside the 0.1–0.3 band.
+ */
+export const SHEET_SPRING = { type: 'spring', visualDuration: 0.3, bounce: 0.2 } as const;
 
 /**
  * Settling after a release, and the completion travel: damping 1.0, response

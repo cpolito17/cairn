@@ -140,15 +140,30 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    /* Gentler, not zero (§8.5): opacity and colour fades survive, movement
-       does not. */
+    /* §8.5 is precise here: reduced motion is "gentler, not zero" — opacity and
+       colour fades that aid comprehension stay, movement goes. Zeroing every
+       transition-duration is the easy reading and the wrong one: it takes the
+       checkbox fill, the completed-row crossfade and the theme change with it,
+       and those are the fades that explain what just happened.
+
+       So the cut is by *property*, not by duration. Overriding
+       transition-property to the non-moving set leaves each element's own
+       duration and curve intact for its fades and drops the transform, clip-path
+       and filter transitions on the floor — where an element had no transition
+       at all, the initial 0s duration means this adds nothing. */
+    * {
+      transition-property:
+        opacity, color, background-color, border-color, box-shadow, fill, stroke !important;
+      scroll-behavior: auto !important;
+    }
+
+    /* Keyframes are movement by construction, so they do stop — except the ones
+       marked essential, because a frozen spinner reads as a hung app. */
     *:not([data-motion='essential']),
     *::before,
     *::after {
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
-      transition-duration: 0.01ms !important;
-      scroll-behavior: auto !important;
     }
   }
 }
@@ -158,15 +173,35 @@
    line) or because they are a state the markup should not have to repeat. */
 @layer components {
   /* §8.5: press feedback is scale(0.97) on pointer-down — on *down*, not on
-     release — with the 160ms out-curve. Transform only, and a transition
-     rather than a keyframe so a rapid re-press retargets instead of
-     restarting. */
+     release. Transform only, and a transition rather than a keyframe so a rapid
+     re-press retargets instead of restarting.
+
+     The timing is asymmetric. The press is the app answering the finger and has
+     to be felt as instant, so it takes the fast end of §8.5's 100–160ms band;
+     the release is the control settling back with nothing waiting on it and
+     takes the slow end. Equal timings read as sluggish on the half the user is
+     actually watching. */
   .pressable {
     transition: transform 160ms var(--ease-out);
   }
 
-  .pressable:active {
+  /* §8.5: keyboard-initiated actions get no animation, ever — and Space or
+     Enter on a focused button sets `:active` exactly as a thumb does. The
+     `:focus-visible` exclusion is what tells them apart: a pointer press does
+     not raise focus-visible, a keyboard activation always does. */
+  .pressable:active:not(:focus-visible) {
     transform: scale(0.97);
+    transition-duration: 100ms;
+  }
+
+  /* Press feedback is movement, so reduced motion drops it. This lives in the
+     same layer as the rule it overrides — `@layer base` losing to
+     `@layer components` regardless of specificity is precisely how a
+     reduced-motion override goes quietly missing. */
+  @media (prefers-reduced-motion: reduce) {
+    .pressable:active:not(:focus-visible) {
+      transform: none;
+    }
   }
 
   /* A row being dragged is lifted, not pressed. Without this the press scale

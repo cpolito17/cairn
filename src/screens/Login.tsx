@@ -14,10 +14,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, login } from '../lib/api';
+import { OUT_CURVE, prefersReducedMotion } from '../lib/motion';
 import { takeRedirect } from '../lib/redirect';
-
-/** §8.5 house curve — standard out. Entrances, responses, state changes. */
-const OUT_CURVE = 'cubic-bezier(0.23, 1, 0.32, 1)';
 
 /** The shake: a short horizontal wiggle, well under the 300ms ceiling. */
 const SHAKE_MS = 240;
@@ -27,10 +25,6 @@ type Status =
   | { kind: 'submitting' }
   | { kind: 'error'; message: string }
   | { kind: 'rateLimited'; secondsLeft: number };
-
-function prefersReducedMotion(): boolean {
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
 
 /** "1:30" / "45s" — the cooling-off period, stated plainly. */
 function formatCooldown(seconds: number): string {
@@ -190,15 +184,15 @@ export function Login() {
           <button
             type="submit"
             disabled={disabled}
-            className="mt-6 flex w-full items-center justify-center rounded-pill bg-accent
-                       text-on-accent transition-transform active:scale-[0.97]
-                       disabled:pointer-events-none disabled:opacity-60"
-            style={{
-              height: 'var(--button-height)',
-              fontWeight: 600,
-              transitionDuration: '160ms',
-              transitionTimingFunction: OUT_CURVE,
-            }}
+            // The shared `.pressable` rule rather than a local
+            // `active:scale-[0.97]`: press feedback is one behaviour, and the
+            // hand-rolled copy missed both of the things that rule now carries
+            // — the asymmetric press/release timing and the `:focus-visible`
+            // exclusion that keeps Space and Enter from animating (§8.5).
+            className="pressable mt-6 flex w-full items-center justify-center rounded-pill
+                       bg-accent text-on-accent disabled:pointer-events-none
+                       disabled:opacity-60"
+            style={{ height: 'var(--button-height)', fontWeight: 600 }}
           >
             {submitting ? <Spinner /> : 'Unlock'}
           </button>

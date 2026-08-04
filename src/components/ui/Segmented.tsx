@@ -13,6 +13,7 @@
 
 import { motion } from 'motion/react';
 import { useRef } from 'react';
+import { UI_SPRING } from '../../lib/motion';
 
 export interface SegmentedOption<T extends string> {
   value: T;
@@ -38,6 +39,17 @@ export function Segmented<T extends string>({
   className = '',
 }: SegmentedProps<T>) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  /**
+   * §8.5: keyboard-initiated actions get no animation, ever. Arrow-keying
+   * through a radio group is the clearest case there is — it is repeatable at
+   * key-repeat speed, and a thumb springing after each press turns a two-press
+   * traversal into a queue of springs chasing the focus ring.
+   *
+   * A ref rather than state: it has to be readable during the render the key
+   * press causes, and a state update would land one render late — exactly the
+   * render that animates.
+   */
+  const viaKeyboard = useRef(false);
 
   /** Arrow keys move the selection, which is what a radio group does. */
   function onKeyDown(event: React.KeyboardEvent, index: number) {
@@ -51,6 +63,7 @@ export function Segmented<T extends string>({
 
     event.preventDefault();
     const next = (index + delta + options.length) % options.length;
+    viaKeyboard.current = true;
     refs.current[next]?.focus();
     select(options[next].value);
   }
@@ -92,7 +105,14 @@ export function Segmented<T extends string>({
               role="radio"
               aria-checked={selected}
               tabIndex={selected ? 0 : -1}
-              onClick={() => select(option.value)}
+              // `detail === 0` is a click the keyboard synthesised — Space and
+              // Enter on a focused radio arrive here exactly as a tap does, and
+              // §8.5 wants them told apart. Same test the task row's checkbox
+              // uses, for the same reason.
+              onClick={(event) => {
+                viaKeyboard.current = event.detail === 0;
+                select(option.value);
+              }}
               onKeyDown={(event) => onKeyDown(event, index)}
               className={[
                 'pressable relative w-full truncate rounded-chip px-3 text-center select-none',
@@ -111,10 +131,16 @@ export function Segmented<T extends string>({
                   aria-hidden="true"
                   layoutId={`segmented-thumb-${id}`}
                   className="absolute inset-0 rounded-chip bg-surface shadow-sm"
-                  // Reposition spring from §8.5: critically damped, no
-                  // overshoot, and it retargets mid-flight rather than
-                  // restarting, which a keyframe animation could not do.
-                  transition={{ type: 'spring', bounce: 0, duration: 0.2 }}
+                  // §8.5 puts the thumb at ~200ms, critically damped, and it
+                  // retargets mid-flight rather than restarting — which a
+                  // keyframe could not do. `visualDuration` because that is the
+                  // dial §8.5 means by response; plain `duration` on a spring is
+                  // its total settle and lands somewhere else entirely.
+                  transition={
+                    viaKeyboard.current
+                      ? { duration: 0 }
+                      : { ...UI_SPRING, visualDuration: 0.2 }
+                  }
                 />
               )}
               <span className="relative">{option.label}</span>

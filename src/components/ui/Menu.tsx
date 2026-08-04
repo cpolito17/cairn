@@ -12,9 +12,7 @@
 import { DotsThreeVertical } from '@phosphor-icons/react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-
-/** §8.5 standard out curve. */
-const OUT = [0.23, 1, 0.32, 1] as const;
+import { OUT } from '../../lib/motion';
 
 export interface MenuProps {
   label: string;

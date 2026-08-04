@@ -10,10 +10,8 @@
 
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { DRAWER, SHEET_SPRING } from '../../lib/motion';
 import { useOverlay } from './overlay';
-
-/** §8.5 drawer curve. */
-const DRAWER = [0.32, 0.72, 0, 1] as const;
 
 /** Past this the drag is a dismissal. */
 const DISMISS_DISTANCE = 96;
@@ -78,7 +76,12 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
-            transition={{ duration: 0.28, ease: DRAWER }}
+            // §8.5: springs, not durations, for anything touchable mid-flight —
+            // and this panel is dragged. A fixed tween cannot take the flick's
+            // velocity, so a sheet thrown downward used to stop dead and then
+            // restart at a stranger's pace; the spring is continuous with the
+            // gesture. Sheet spring is 0.8 damping / 0.3 response.
+            transition={SHEET_SPRING}
             drag="y"
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0, bottom: 0.6 }}
