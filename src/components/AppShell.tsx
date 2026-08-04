@@ -22,9 +22,11 @@ import {
   CaretLeft,
   CloudSlash,
   DotsThreeVertical,
+  Drop,
   Moon,
   SignOut,
   Sun,
+  Tree,
 } from '@phosphor-icons/react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -34,6 +36,15 @@ import { useStore } from '../lib/store';
 import { CONTEXTS, type Context } from '../../shared/types';
 import { Segmented } from './ui/Segmented';
 import { OUT } from '../lib/motion';
+import { THEME_LABELS, type Theme } from '../lib/theme';
+
+/** The glyph that stands for each theme in the menu row. */
+const THEME_ICONS: Record<Theme, ReactNode> = {
+  dark: <Moon size={20} />,
+  light: <Sun size={20} />,
+  ocean: <Drop size={20} />,
+  forest: <Tree size={20} />,
+};
 
 const CONTEXT_OPTIONS = CONTEXTS.map((value) => ({
   value,
@@ -157,7 +168,7 @@ function OfflineIndicator() {
 function OverflowMenu({ onSignedOut }: { onSignedOut(): void }) {
   const [open, setOpen] = useState(false);
   const theme = useStore((state) => state.theme);
-  const toggleTheme = useStore((state) => state.toggleTheme);
+  const cycleTheme = useStore((state) => state.cycleTheme);
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -223,14 +234,17 @@ function OverflowMenu({ onSignedOut }: { onSignedOut(): void }) {
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ duration: 0.16, ease: OUT }}
           >
+            {/* The theme row cycles rather than toggles, and deliberately does
+                not close the menu: picking between four themes means looking at
+                two or three of them, and a menu that shut on every tap would
+                make that four round trips through the overflow button. The
+                trailing label is the live answer to "which one am I on". */}
             <MenuItem
-              icon={theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-              onClick={() => {
-                toggleTheme();
-                setOpen(false);
-              }}
+              icon={THEME_ICONS[theme]}
+              trailing={THEME_LABELS[theme]}
+              onClick={cycleTheme}
             >
-              {theme === 'dark' ? 'Light theme' : 'Dark theme'}
+              Theme
             </MenuItem>
 
             <MenuItem
@@ -256,10 +270,13 @@ function OverflowMenu({ onSignedOut }: { onSignedOut(): void }) {
 function MenuItem({
   icon,
   onClick,
+  trailing,
   children,
 }: {
   icon: ReactNode;
   onClick(): void;
+  /** Optional muted value at the end of the row — the theme row's current name. */
+  trailing?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -276,7 +293,12 @@ function MenuItem({
       style={{ minHeight: 'var(--tap-target)' }}
     >
       <span className="text-text-secondary">{icon}</span>
-      {children}
+      <span className="flex-1">{children}</span>
+      {trailing !== undefined && (
+        <span className="text-meta text-text-secondary" style={{ fontWeight: 600 }}>
+          {trailing}
+        </span>
+      )}
     </button>
   );
 }

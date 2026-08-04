@@ -8,15 +8,27 @@
  *
  * Progress comes from `boardProgress()` through the store's selector. Nothing
  * here counts tasks itself.
+ *
+ * Below the progress bar the card previews the board's next few active tasks,
+ * so the home screen answers "what is in here" without a navigation. It is a
+ * preview and not a list: the rows are inert text inside the card's link, in
+ * the board's own order, capped so a 40-task board and a 4-task board are the
+ * same height.
  */
 
-import { useBoardProgress } from '../lib/store';
+import { useActiveTasks, useBoardProgress } from '../lib/store';
 import { boardPath, Link } from '../lib/router';
 import type { Board } from '../../shared/types';
 import { NumberTicker, ProgressBar } from './ProgressBar';
 
+/** How many task names a card previews before it stops and counts the rest. */
+const PREVIEW_LIMIT = 5;
+
 export function BoardCard({ board }: { board: Board }) {
   const { percent, done, total } = useBoardProgress(board.id);
+  const active = useActiveTasks(board.id);
+  const preview = active.slice(0, PREVIEW_LIMIT);
+  const overflow = active.length - preview.length;
 
   return (
     <Link
@@ -52,6 +64,37 @@ export function BoardCard({ board }: { board: Board }) {
         <p className="mt-2 text-meta text-text-secondary">
           {done} of {total} {total === 1 ? 'task' : 'tasks'}
         </p>
+
+        {/* The preview. `aria-hidden` because the line above already states the
+            board's state to a screen reader, and reading five task names inside
+            a link's accessible name would bury the board's own. */}
+        <ul aria-hidden="true" className="mt-3 grid gap-1">
+          {preview.map((task) => (
+            <li key={task.id} className="flex items-baseline gap-2">
+              <span
+                className="mt-px size-1 shrink-0 rounded-pill"
+                style={{
+                  backgroundColor: task.priority ? 'var(--accent)' : 'var(--text-tertiary)',
+                }}
+              />
+              <span className="min-w-0 flex-1 truncate text-meta text-text-secondary">
+                {task.name}
+              </span>
+            </li>
+          ))}
+
+          {preview.length === 0 && (
+            <li className="text-meta text-text-tertiary">
+              {total === 0 ? 'No tasks yet' : 'Everything here is done'}
+            </li>
+          )}
+
+          {overflow > 0 && (
+            <li className="text-meta text-text-tertiary">
+              +{overflow} more
+            </li>
+          )}
+        </ul>
       </div>
     </Link>
   );

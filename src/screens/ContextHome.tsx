@@ -60,7 +60,7 @@ export function ContextHome() {
       <section>
         <SectionHeader
           action={
-            <Button variant="tertiary" onClick={() => setCreating(true)}>
+            <Button variant="secondary" onClick={() => setCreating(true)}>
               New board
             </Button>
           }
@@ -69,14 +69,18 @@ export function ContextHome() {
         </SectionHeader>
 
         {/* §6.6: board cards reorder by the same gesture the task rows use.
-            One column on narrow viewports, two on wide — the primitive reads
-            the geometry rather than being told, so the two-column case tracks
-            horizontally and the one-column case does not. */}
+            The primitive reads the geometry rather than being told, so the
+            multi-column cases track horizontally and the one-column case does
+            not.
+
+            Cards are narrow by design: a card carries a task preview now, so it
+            wants to grow downward, and four to a row is what keeps several
+            boards on screen while each one is free to get taller. */}
         <Reorderable
           items={boards}
           getKey={(board) => board.id}
           onReorder={reorderBoard}
-          className="grid gap-3 md:grid-cols-2"
+          className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
           liftRadius="var(--radius-card)"
           aria-label="Boards"
         >
@@ -135,7 +139,8 @@ function HomeSkeleton() {
       <UpNextSkeleton />
       <section>
         <SectionHeader>Boards</SectionHeader>
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <SkeletonCard />
           <SkeletonCard />
           <SkeletonCard />
           <SkeletonCard />
