@@ -14,15 +14,16 @@
  * at full contrast, because an overdue task is not a warning, it is a task.
  */
 
-import { Check, Flag } from '@phosphor-icons/react';
+import { CalendarBlank, Check, Clock, Flag } from '@phosphor-icons/react';
 import { motion } from 'motion/react';
 import { useState } from 'react';
 import { claimColdLoad, staggerDelay } from '../lib/coldload';
 import { usePersistedCollapse, upNextKey } from '../lib/collapse';
-import { formatDue, formatOverdue } from '../lib/dates';
+import { formatBlockTime, formatDue, formatOverdue } from '../lib/dates';
 import { toggleComplete } from '../lib/actions';
 import { boardPath, navigate } from '../lib/router';
 import { useStore, useUpNext } from '../lib/store';
+import { isScheduledEntry } from '../../shared/upnext';
 import type { Context, Task } from '../../shared/types';
 import { Skeleton } from './ui/Skeleton';
 import { TaskDetails } from './TaskDetails';
@@ -82,8 +83,15 @@ export function UpNext({ context }: { context: Context }) {
 function UpNextCard({ task }: { task: Task }) {
   const board = useStore((state) => state.boards[task.boardId]);
   const [now] = useState(() => Date.now());
-  const overdue = formatOverdue(task, now);
-  const due = overdue ?? formatDue(task, now);
+  // An entry present because of its block leads with the scheduled time behind
+  // a clock; one present because of its date leads with the date behind a
+  // calendar (§8). An entry with both shows the one its tier is about, which is
+  // why this asks the ranking rather than checking `scheduledAt` itself.
+  const scheduled = isScheduledEntry(task, now);
+  const overdue = scheduled ? null : formatOverdue(task, now);
+  const line = scheduled
+    ? formatBlockTime(task.scheduledAt as number)
+    : (overdue ?? formatDue(task, now));
 
   return (
     <div
@@ -143,12 +151,17 @@ function UpNextCard({ task }: { task: Task }) {
         <span className="mt-2 block text-meta text-text-secondary">
           {board?.name ?? ''}
         </span>
-        {due && (
+        {line && (
           <span
-            className="mt-1 block text-meta"
+            className="mt-1 flex items-center gap-1 text-meta tabular-nums"
             style={{ color: overdue ? 'var(--negative)' : 'var(--text-secondary)' }}
           >
-            {due}
+            {scheduled ? (
+              <Clock size={13} aria-hidden="true" />
+            ) : (
+              <CalendarBlank size={13} aria-hidden="true" />
+            )}
+            {line}
           </span>
         )}
       </button>

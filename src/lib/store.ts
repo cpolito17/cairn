@@ -24,7 +24,8 @@ import { create } from 'zustand';
 import { blockedBy, lookupOf } from '../../shared/dependencies';
 import { boardProgress, type BoardProgress } from '../../shared/progress';
 import { midpoint } from '../../shared/order';
-import type { Board, Context, Task } from '../../shared/types';
+import { DEFAULT_SETTINGS } from '../../shared/settings';
+import type { Board, Context, Settings, Task } from '../../shared/types';
 import { upNext } from '../../shared/upnext';
 import * as api from './api';
 import { ApiError } from './api';
@@ -37,6 +38,13 @@ import { toast } from './toasts';
 export interface Data {
   boards: Record<string, Board>;
   tasks: Record<string, Task>;
+  /**
+   * The one settings document (V2 §3.2). Not id-keyed like the other two
+   * because there is exactly one of it — but it lives in `Data` all the same,
+   * so a settings write is captured, applied, and rolled back by the same
+   * `mutate()` path as everything else rather than by a second mechanism.
+   */
+  settings: Settings;
 }
 
 export type Status = 'loading' | 'ready' | 'error';
@@ -54,9 +62,13 @@ export type Status = 'loading' | 'ready' | 'error';
 export type LoadFailure = 'offline' | 'server';
 
 export interface EntityRef {
-  kind: 'board' | 'task';
+  kind: 'board' | 'task' | 'settings';
+  /** Ignored for `settings`, which is a single document. */
   id: string;
 }
+
+/** The ref a settings mutation touches. There is only ever one. */
+export const SETTINGS_REF: EntityRef = { kind: 'settings', id: 'settings' };
 
 /**
  * The pre-apply state of everything a mutation touches. `undefined` for an
@@ -66,6 +78,8 @@ export interface EntityRef {
 export interface Captured {
   boards: Record<string, Board | undefined>;
   tasks: Record<string, Task | undefined>;
+  /** Present only when the mutation touched settings. */
+  settings?: Settings;
 }
 
 /**
@@ -97,6 +111,7 @@ export interface MutationSpec<R = unknown> {
 export function restoreCaptured(data: Data, captured: Captured): Data {
   const boards = { ...data.boards };
   const tasks = { ...data.tasks };
+  const settings = captured.settings ?? data.settings;
 
   for (const [id, board] of Object.entries(captured.boards)) {
     if (board === undefined) delete boards[id];
@@ -107,19 +122,20 @@ export function restoreCaptured(data: Data, captured: Captured): Data {
     else tasks[id] = task;
   }
 
-  return { boards, tasks };
+  return { boards, tasks, settings };
 }
 
 /** The entity slice of the store, so a spec never sees the rest of it. */
 function dataOf(state: Data): Data {
-  return { boards: state.boards, tasks: state.tasks };
+  return { boards: state.boards, tasks: state.tasks, settings: state.settings };
 }
 
 function capture(data: Data, refs: EntityRef[]): Captured {
   const captured: Captured = { boards: {}, tasks: {} };
   for (const ref of refs) {
     if (ref.kind === 'board') captured.boards[ref.id] = data.boards[ref.id];
-    else captured.tasks[ref.id] = data.tasks[ref.id];
+    else if (ref.kind === 'task') captured.tasks[ref.id] = data.tasks[ref.id];
+    else captured.settings = data.settings;
   }
   return captured;
 }
@@ -189,6 +205,10 @@ export const useStore = create<AppStore>((set, get) => ({
   failure: null,
   boards: {},
   tasks: {},
+  // The defaults until the bootstrap read answers. The Worker sends the same
+  // constant for a database with no settings row, so this is not a placeholder
+  // that gets corrected — for a fresh install it is the value.
+  settings: DEFAULT_SETTINGS,
   context: bootContext,
   theme: bootTheme,
   online: typeof navigator === 'undefined' ? true : navigator.onLine,
@@ -200,12 +220,13 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ status: 'loading', failure: null });
     inFlightLoad = api
       .getState()
-      .then(({ boards, tasks }) => {
+      .then(({ boards, tasks, settings }) => {
         set({
           status: 'ready',
           failure: null,
           boards: Object.fromEntries(boards.map((board) => [board.id, board])),
           tasks: Object.fromEntries(tasks.map((task) => [task.id, task])),
+          settings,
         });
       })
       .catch((err: unknown) => {
@@ -280,7 +301,7 @@ export const useStore = create<AppStore>((set, get) => ({
 
   reset() {
     inFlightLoad = null;
-    set({ status: 'loading', failure: null, boards: {}, tasks: {} });
+    set({ status: 'loading', failure: null, boards: {}, tasks: {}, settings: DEFAULT_SETTINGS });
   },
 }));
 
@@ -429,6 +450,8 @@ export const useCompletedTasks = (boardId: string): Task[] =>
 export const useUpNext = (context: Context): Task[] =>
   useStore((state) => selectUpNext(state, context));
 
+export const useSettings = (): Settings => useStore((state) => state.settings);
+
 export const useBoardProgress = (boardId: string): BoardProgress =>
   useStore((state) => selectBoardProgress(state, boardId));
 
@@ -462,11 +485,11 @@ export function positionBetween(before: string | null, after: string | null): st
 /* --- entity helpers -------------------------------------------------------- */
 
 function withBoard(data: Data, board: Board): Data {
-  return { boards: { ...data.boards, [board.id]: board }, tasks: data.tasks };
+  return { ...data, boards: { ...data.boards, [board.id]: board } };
 }
 
 function withTask(data: Data, task: Task): Data {
-  return { boards: data.boards, tasks: { ...data.tasks, [task.id]: task } };
+  return { ...data, tasks: { ...data.tasks, [task.id]: task } };
 }
 
 function withoutBoard(data: Data, id: string): Data {
@@ -477,13 +500,13 @@ function withoutBoard(data: Data, id: string): Data {
   const tasks = Object.fromEntries(
     Object.entries(data.tasks).filter(([, task]) => task.boardId !== id),
   );
-  return { boards, tasks };
+  return { ...data, boards, tasks };
 }
 
 function withoutTask(data: Data, id: string): Data {
   const tasks = { ...data.tasks };
   delete tasks[id];
-  return { boards: data.boards, tasks };
+  return { ...data, tasks };
 }
 
 /**
@@ -510,7 +533,7 @@ function replaceBoardId(data: Data, optimisticId: string, board: Board): Data {
       task.boardId === optimisticId ? [id, { ...task, boardId: board.id }] : [id, task],
     ),
   );
-  return { boards, tasks };
+  return { ...data, boards, tasks };
 }
 
 function replaceTaskId(data: Data, optimisticId: string, task: Task): Data {
@@ -518,7 +541,7 @@ function replaceTaskId(data: Data, optimisticId: string, task: Task): Data {
   const tasks = { ...data.tasks };
   delete tasks[optimisticId];
   tasks[task.id] = task;
-  return { boards: data.boards, tasks };
+  return { ...data, tasks };
 }
 
 /* --- mutation specs -------------------------------------------------------- */
@@ -618,7 +641,8 @@ export interface NewTask {
   notes?: string | null;
   dueDate?: string | null;
   dueTime?: string | null;
-  duration?: Task['duration'];
+  durationMinutes?: Task['durationMinutes'];
+  scheduledAt?: Task['scheduledAt'];
   difficulty?: Task['difficulty'];
   priority?: boolean;
   blocked?: boolean;
@@ -635,7 +659,8 @@ export function createTaskSpec(draft: NewTask): MutationSpec<Task> {
     notes: draft.notes ?? null,
     dueDate: draft.dueDate ?? null,
     dueTime: draft.dueTime ?? null,
-    duration: draft.duration ?? null,
+    durationMinutes: draft.durationMinutes ?? null,
+    scheduledAt: draft.scheduledAt ?? null,
     difficulty: draft.difficulty ?? null,
     priority: draft.priority ?? false,
     blocked: draft.blocked ?? false,
@@ -658,7 +683,8 @@ export function createTaskSpec(draft: NewTask): MutationSpec<Task> {
         notes: optimistic.notes,
         dueDate: optimistic.dueDate,
         dueTime: optimistic.dueTime,
-        duration: optimistic.duration,
+        durationMinutes: optimistic.durationMinutes,
+        scheduledAt: optimistic.scheduledAt,
         difficulty: optimistic.difficulty,
         priority: optimistic.priority,
         blocked: optimistic.blocked,
@@ -676,7 +702,8 @@ export function updateTaskSpec(task: Task, patch: api.TaskPatch): MutationSpec<T
     ...(patch.notes === undefined ? {} : { notes: patch.notes }),
     ...(patch.dueDate === undefined ? {} : { dueDate: patch.dueDate }),
     ...(patch.dueTime === undefined ? {} : { dueTime: patch.dueTime }),
-    ...(patch.duration === undefined ? {} : { duration: patch.duration }),
+    ...(patch.durationMinutes === undefined ? {} : { durationMinutes: patch.durationMinutes }),
+    ...(patch.scheduledAt === undefined ? {} : { scheduledAt: patch.scheduledAt }),
     ...(patch.difficulty === undefined ? {} : { difficulty: patch.difficulty }),
     ...(patch.priority === undefined ? {} : { priority: patch.priority }),
     ...(patch.blocked === undefined ? {} : { blocked: patch.blocked }),
@@ -742,5 +769,26 @@ export function deleteTaskSpec(task: Task): MutationSpec<void> {
     revert: restoreCaptured,
     request: () => api.deleteTask(task.id),
     reconcile: (data) => data,
+  };
+}
+
+/**
+ * Change one or more settings. The whole document goes to the server — that is
+ * what `PUT /api/settings` takes (V2 §3.2) — while the caller only names what
+ * changed, and the rollback restores the document that was there before.
+ */
+export function updateSettingsSpec(
+  settings: Settings,
+  patch: Partial<Settings>,
+): MutationSpec<Settings> {
+  const optimistic: Settings = { ...settings, ...patch };
+
+  return {
+    onError: "Couldn't save your settings.",
+    touches: [SETTINGS_REF],
+    apply: (data) => ({ ...data, settings: optimistic }),
+    revert: restoreCaptured,
+    request: () => api.putSettings(optimistic),
+    reconcile: (data, saved) => ({ ...data, settings: saved }),
   };
 }

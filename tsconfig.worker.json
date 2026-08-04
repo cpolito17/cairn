@@ -21,5 +21,12 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["worker", "shared/types.ts", "shared/order.ts", "shared/dependencies.ts"]
+  "include": [
+    "worker",
+    "shared/types.ts",
+    "shared/order.ts",
+    "shared/dependencies.ts",
+    "shared/schedule.ts",
+    "shared/settings.ts"
+  ]
 }

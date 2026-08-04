@@ -32,14 +32,16 @@ import type { Task } from '../../shared/types';
 import {
   MAX_TASK_NAME,
   absent,
+  assertBlockWithinDay,
   assertTimeHasDate,
   boolean,
   jsonBody,
   nullableDifficulty,
   nullableDueDate,
   nullableDueTime,
-  nullableDuration,
+  nullableDurationMinutes,
   nullableId,
+  nullableScheduledAt,
   nullableText,
   requiredId,
   requiredName,
@@ -80,13 +82,20 @@ async function create(request: Request, env: Env): Promise<Response> {
   const dueTime = absent(body, 'dueTime') ? null : nullableDueTime(body.dueTime);
   assertTimeHasDate(dueDate, dueTime);
 
+  const durationMinutes = absent(body, 'durationMinutes')
+    ? null
+    : nullableDurationMinutes(body.durationMinutes);
+  const scheduledAt = absent(body, 'scheduledAt') ? null : nullableScheduledAt(body.scheduledAt);
+  assertBlockWithinDay({ durationMinutes, scheduledAt });
+
   const draft = {
     boardId,
     name: requiredName(body.name, MAX_TASK_NAME, 'name'),
     notes: absent(body, 'notes') ? null : nullableText(body.notes, 'notes'),
     dueDate,
     dueTime,
-    duration: absent(body, 'duration') ? null : nullableDuration(body.duration),
+    durationMinutes,
+    scheduledAt,
     difficulty: absent(body, 'difficulty') ? null : nullableDifficulty(body.difficulty),
     priority: absent(body, 'priority') ? false : boolean(body.priority, 'priority'),
     blocked: absent(body, 'blocked') ? false : boolean(body.blocked, 'blocked'),
@@ -120,11 +129,26 @@ async function patch(request: Request, env: Env, id: string): Promise<Response> 
 
   if (!absent(body, 'name')) columns.name = requiredName(body.name, MAX_TASK_NAME, 'name');
   if (!absent(body, 'notes')) columns.notes = nullableText(body.notes, 'notes');
-  if (!absent(body, 'duration')) columns.duration = nullableDuration(body.duration);
   if (!absent(body, 'difficulty')) columns.difficulty = nullableDifficulty(body.difficulty);
   if (!absent(body, 'priority')) columns.priority = boolean(body.priority, 'priority') ? 1 : 0;
   if (!absent(body, 'blocked')) columns.blocked = boolean(body.blocked, 'blocked') ? 1 : 0;
   if (!absent(body, 'position')) columns.position = requiredPosition(body.position);
+
+  // The block is validated against the task's *resulting* state, for the same
+  // reason the date/time pair below is: a patch that only lengthens an
+  // already-late block pushes it past midnight, and the patch alone cannot see
+  // that. An unsnapped start and an over-long duration are refused outright —
+  // never rounded — so the row the client drew and the row the server stores
+  // are the same row.
+  const durationMinutes = absent(body, 'durationMinutes')
+    ? existing.durationMinutes
+    : nullableDurationMinutes(body.durationMinutes);
+  const scheduledAt = absent(body, 'scheduledAt')
+    ? existing.scheduledAt
+    : nullableScheduledAt(body.scheduledAt);
+  assertBlockWithinDay({ durationMinutes, scheduledAt });
+  if (!absent(body, 'durationMinutes')) columns.duration_minutes = durationMinutes;
+  if (!absent(body, 'scheduledAt')) columns.scheduled_at = scheduledAt;
 
   // The date/time pair is validated against the task's *resulting* state, so
   // clearing the date while leaving an old time behind is caught as well.

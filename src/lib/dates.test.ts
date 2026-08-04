@@ -115,7 +115,9 @@ describe('isOverdue / formatOverdue', () => {
 
 describe('formatDuration', () => {
   it('spells out the half day and leaves the rest compact', () => {
-    expect(formatDuration('15m')).toBe('15m');
-    expect(formatDuration('half-day')).toBe('Half day');
+    expect(formatDuration(15)).toBe('15m');
+    expect(formatDuration(240)).toBe('4h');
+    expect(formatDuration(105)).toBe('1h 45m');
+    expect(formatDuration(720)).toBe('12h');
   });
 });
