@@ -7,6 +7,7 @@
 | D1 database `cairn` | Created — `a05a3c87-c16b-458e-87f8-9c117a28312e`, primary region ENAM |
 | `0001_init.sql` on the remote DB | Applied, and recorded in `d1_migrations` |
 | `0002_task_dependencies.sql` on the remote DB | **Verify before trusting** — see "Later migrations". Shipping the code without it takes the app down. |
+| `0003_planner.sql` on the remote DB | **Not yet.** One-way and destructive — see below. Must be applied *before* the V2 Worker is deployed |
 | `database_id` in `wrangler.toml` | Wired to the real ID |
 | Worker deployed | **Not yet** — needs an authenticated `wrangler` |
 | `tasks.charliepolito.com` attached | **Not yet** — happens on the first deploy |
@@ -135,6 +136,30 @@ nothing pending, and a later `apply` is a no-op.
 
 If the column already exists but the `d1_migrations` row is missing — someone
 ran the ALTER by hand before — run the `INSERT` alone.
+
+### `0003_planner.sql` is one-way
+
+The V2 migration converts `tasks.duration` from a string enum to
+`duration_minutes` and then **drops the column**. There is no down migration and
+the old strings are not recoverable from the new integers: `4h` and `half-day`
+both become 240, deliberately (V2 §2), so the mapping is not reversible even in
+principle.
+
+Two consequences for the deploy:
+
+- **Take a backup first** — `npx wrangler d1 export cairn --remote --output
+  cairn-pre-0003.sql` — because "revert the deploy" is not a way back from this
+  one.
+- **Migrate before deploying, not after.** The rule the rest of this document
+  argues for is load-bearing here in both directions: the V2 Worker selects
+  `duration_minutes`, which the unmigrated database does not have, and the v1
+  Worker selects `duration`, which the migrated one no longer has. The window
+  where one of them is broken is however long the two steps are apart, so run
+  them as one command (`npm run deploy` already does).
+
+The conversion has been verified against a local database seeded with a row of
+every old value — `15m`, `30m`, `1h`, `2h`, `4h`, `half-day`, and NULL — which
+migrated to `15, 30, 60, 120, 240, 240, NULL` respectively.
 
 ### Checking what the live database actually has
 

@@ -14,11 +14,12 @@
 import type { AppState } from '../../shared/types';
 import { requireSession } from '../auth';
 import type { Env } from '../db';
-import { enableForeignKeys, selectBoards, selectTasks } from '../db';
+import { enableForeignKeys, selectBoards, selectSettings, selectTasks } from '../db';
 import { apiError, json } from '../http';
 import { BadRequest } from '../validate';
 import { handleAuth } from './auth';
 import { handleBoards } from './boards';
+import { handleSettings } from './settings';
 import { handleTasks } from './tasks';
 
 export { apiError, json } from '../http';
@@ -26,8 +27,17 @@ export { apiError, json } from '../http';
 async function state(env: Env): Promise<Response> {
   // Everything, including archived boards and completed tasks — the client
   // decides what to show, and it cannot decide from data it does not have.
-  const [boards, tasks] = await Promise.all([selectBoards(env.DB), selectTasks(env.DB)]);
-  const body: AppState = { boards, tasks };
+  //
+  // Settings ride along rather than getting an endpoint of their own: the cold
+  // load stays one round trip (§2), and `selectSettings` answers with the
+  // defaults when there is no row or the stored document is malformed, so this
+  // read has no failure mode the client has to handle.
+  const [boards, tasks, settings] = await Promise.all([
+    selectBoards(env.DB),
+    selectTasks(env.DB),
+    selectSettings(env.DB),
+  ]);
+  const body: AppState = { boards, tasks, settings };
   return json(body);
 }
 
@@ -55,7 +65,10 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     // connection doing the deleting.
     if (request.method !== 'GET') await enableForeignKeys(env.DB);
 
-    const response = handleBoards(request, env, pathname) ?? handleTasks(request, env, pathname);
+    const response =
+      handleBoards(request, env, pathname) ??
+      handleTasks(request, env, pathname) ??
+      handleSettings(request, env, pathname);
     if (response) return await response;
 
     return apiError('Not found', 404);

@@ -13,7 +13,7 @@
  * one.
  */
 
-import type { Duration, Task } from '../../shared/types';
+import type { Task } from '../../shared/types';
 
 const MONTHS = [
   'Jan',
@@ -140,15 +140,31 @@ export function formatOverdue(
   return `Overdue by ${days} ${days === 1 ? 'day' : 'days'}`;
 }
 
-const DURATION_LABELS: Record<Duration, string> = {
-  '15m': '15m',
-  '30m': '30m',
-  '1h': '1h',
-  '2h': '2h',
-  '4h': '4h',
-  'half-day': 'Half day',
-};
+/**
+ * A duration in minutes, as a chip reads it: "45m", "1h", "1h 45m", "12h".
+ *
+ * Minutes are dropped when they are zero rather than padded to "2h 0m", and
+ * hours are dropped below one — the string is a label on a chip, not a
+ * stopwatch, and "0h 45m" costs a beat to read for no information.
+ */
+export function formatDuration(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${rest}m`;
+  if (rest === 0) return `${hours}h`;
+  return `${hours}h ${rest}m`;
+}
 
-export function formatDuration(duration: Duration): string {
-  return DURATION_LABELS[duration];
+/** "Tue 2:00 PM" — how a block reads outside the grid, in the composer. */
+export function formatSlot(scheduledAt: number, now: number): string {
+  const at = new Date(scheduledAt);
+  const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+  return `${formatDate(isoDate(scheduledAt), now)} · ${formatTime(hhmm)}`;
+}
+
+/** Just the clock part of a block — what a tier-2 Up Next card leads with. */
+export function formatBlockTime(scheduledAt: number): string {
+  const at = new Date(scheduledAt);
+  const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+  return formatTime(hhmm);
 }

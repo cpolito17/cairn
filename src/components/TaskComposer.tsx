@@ -19,7 +19,7 @@
  * sheet is a dead end the user has to reverse-engineer.
  */
 
-import { Flag, Prohibit } from '@phosphor-icons/react';
+import { Flag, Minus, Plus, Prohibit } from '@phosphor-icons/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { addTask } from '../lib/actions';
 import {
@@ -32,7 +32,15 @@ import {
 import type { TaskPatch } from '../lib/api';
 import { dependencyOptions, lookupOf } from '../../shared/dependencies';
 import { formatDuration } from '../lib/dates';
-import { DURATIONS, type Context, type Difficulty, type Task } from '../../shared/types';
+import {
+  DURATION_PRESETS,
+  MAX_DURATION_MINUTES,
+  MIN_DURATION_MINUTES,
+  SCHEDULE_STEP_MINUTES,
+  type Context,
+  type Difficulty,
+  type Task,
+} from '../../shared/types';
 import { Button } from './ui/Button';
 import { SelectableChip } from './ui/Chip';
 import { DeleteConfirm } from './DeleteConfirm';
@@ -44,13 +52,17 @@ import { PipsInput } from './ui/Pips';
 /** Five-minute granularity in the native time picker (§6.4). */
 const TIME_STEP_SECONDS = 300;
 
+/** Where the stepper starts when the task has no duration yet: 45 minutes, the
+ *  first multiple of 15 the preset chips do not already cover. */
+const FIRST_CUSTOM_MINUTES = 45;
+
 /** The editable shape, so "changed?" is one comparison instead of eight. */
 interface Draft {
   name: string;
   notes: string;
   dueDate: string;
   dueTime: string;
-  duration: Task['duration'];
+  durationMinutes: number | null;
   difficulty: Difficulty | null;
   priority: boolean;
   blocked: boolean;
@@ -64,7 +76,7 @@ function draftOf(task: Task | undefined, prefill: string): Draft {
     notes: task?.notes ?? '',
     dueDate: task?.dueDate ?? '',
     dueTime: task?.dueTime ?? '',
-    duration: task?.duration ?? null,
+    durationMinutes: task?.durationMinutes ?? null,
     difficulty: task?.difficulty ?? null,
     priority: task?.priority ?? false,
     blocked: task?.blocked ?? false,
@@ -78,7 +90,7 @@ function same(a: Draft, b: Draft): boolean {
     a.notes === b.notes &&
     a.dueDate === b.dueDate &&
     a.dueTime === b.dueTime &&
-    a.duration === b.duration &&
+    a.durationMinutes === b.durationMinutes &&
     a.difficulty === b.difficulty &&
     a.priority === b.priority &&
     a.blocked === b.blocked &&
@@ -149,7 +161,9 @@ export function TaskComposer({
     if (draft.notes !== initial.notes) next.notes = draft.notes.trim() || null;
     if (draft.dueDate !== initial.dueDate) next.dueDate = draft.dueDate || null;
     if (draft.dueTime !== initial.dueTime) next.dueTime = draft.dueTime || null;
-    if (draft.duration !== initial.duration) next.duration = draft.duration;
+    if (draft.durationMinutes !== initial.durationMinutes) {
+      next.durationMinutes = draft.durationMinutes;
+    }
     if (draft.difficulty !== initial.difficulty) next.difficulty = draft.difficulty;
     if (draft.priority !== initial.priority) next.priority = draft.priority;
     if (draft.blocked !== initial.blocked) next.blocked = draft.blocked;
@@ -177,7 +191,7 @@ export function TaskComposer({
         notes: draft.notes.trim() || null,
         dueDate: draft.dueDate || null,
         dueTime: draft.dueTime || null,
-        duration: draft.duration,
+        durationMinutes: draft.durationMinutes,
         difficulty: draft.difficulty,
         priority: draft.priority,
         blocked: draft.blocked,
@@ -265,19 +279,10 @@ export function TaskComposer({
 
           <Field>
             <FieldLabel>Duration</FieldLabel>
-            <div className="flex flex-wrap gap-2">
-              {DURATIONS.map((duration) => (
-                <SelectableChip
-                  key={duration}
-                  selected={draft.duration === duration}
-                  onClick={() =>
-                    set('duration', draft.duration === duration ? null : duration)
-                  }
-                >
-                  {formatDuration(duration)}
-                </SelectableChip>
-              ))}
-            </div>
+            <DurationChips
+              value={draft.durationMinutes}
+              onChange={(minutes) => set('durationMinutes', minutes)}
+            />
           </Field>
 
           <Field>
@@ -388,6 +393,146 @@ export function TaskComposer({
         />
       )}
     </>
+  );
+}
+
+/** A committed duration that is not one of the five presets — grid-resized. */
+function isCustom(minutes: number | null): boolean {
+  return minutes !== null && !(DURATION_PRESETS as readonly number[]).includes(minutes);
+}
+
+/**
+ * The duration control: 15m · 30m · 1h · 2h · 4h · Custom (V2 §9).
+ *
+ * **Custom is selected, not chosen.** A resize on the Planner grid produces any
+ * multiple of 15 minutes, and a task carrying 105 of them has to be legible in
+ * the composer without the chips lying about it — so the chip *reads* its real
+ * value ("1h 45m") whenever the stored duration is not a preset, whether or not
+ * anyone opened the stepper. Pressing a preset replaces it and puts the stepper
+ * away; pressing Custom opens the stepper over the same 15-minute grid the grid
+ * itself uses.
+ *
+ * Opening the stepper on a task with no duration commits one, deliberately: the
+ * stepper needs a number to step from, and 45 minutes is the first value the
+ * presets do not already offer.
+ */
+function DurationChips({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange(minutes: number | null): void;
+}) {
+  const custom = isCustom(value);
+  const [stepping, setStepping] = useState(custom);
+
+  // A different task in the same mounted dialog brings its own duration with
+  // it; the stepper follows what is stored rather than what was last open.
+  useEffect(() => {
+    setStepping(isCustom(value));
+    // Only on a change of the task's own value, not on every keystroke of the
+    // stepper — which is why `custom` and not `value` is the dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [custom]);
+
+  function step(delta: number) {
+    const from = value ?? FIRST_CUSTOM_MINUTES;
+    const next = Math.min(
+      MAX_DURATION_MINUTES,
+      Math.max(MIN_DURATION_MINUTES, from + delta * SCHEDULE_STEP_MINUTES),
+    );
+    onChange(next);
+  }
+
+  return (
+    <>
+      <div className="flex flex-wrap gap-2">
+        {DURATION_PRESETS.map((minutes) => (
+          <SelectableChip
+            key={minutes}
+            selected={value === minutes}
+            onClick={() => {
+              setStepping(false);
+              onChange(value === minutes ? null : minutes);
+            }}
+          >
+            {formatDuration(minutes)}
+          </SelectableChip>
+        ))}
+        <SelectableChip
+          selected={custom}
+          onClick={() => {
+            if (custom && stepping) {
+              // A second press on an open custom chip clears the duration —
+              // the same "press the selected chip to unset it" the presets have.
+              setStepping(false);
+              onChange(null);
+              return;
+            }
+            setStepping(true);
+            if (!custom) onChange(FIRST_CUSTOM_MINUTES);
+          }}
+        >
+          {custom ? formatDuration(value as number) : 'Custom'}
+        </SelectableChip>
+      </div>
+
+      {stepping && (
+        <div className="mt-2 flex items-center gap-2">
+          <StepButton
+            label={`Shorter by ${SCHEDULE_STEP_MINUTES} minutes`}
+            onClick={() => step(-1)}
+            disabled={(value ?? FIRST_CUSTOM_MINUTES) <= MIN_DURATION_MINUTES}
+          >
+            <Minus size={18} />
+          </StepButton>
+          <span
+            aria-live="polite"
+            className="text-row text-text tabular-nums"
+            style={{ minWidth: '5.5rem', textAlign: 'center' }}
+          >
+            {formatDuration(value ?? FIRST_CUSTOM_MINUTES)}
+          </span>
+          <StepButton
+            label={`Longer by ${SCHEDULE_STEP_MINUTES} minutes`}
+            onClick={() => step(1)}
+            disabled={(value ?? FIRST_CUSTOM_MINUTES) >= MAX_DURATION_MINUTES}
+          >
+            <Plus size={18} />
+          </StepButton>
+        </div>
+      )}
+    </>
+  );
+}
+
+function StepButton({
+  label,
+  onClick,
+  disabled,
+  children,
+}: {
+  label: string;
+  onClick(): void;
+  disabled: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      disabled={disabled}
+      className="pressable flex items-center justify-center rounded-control disabled:opacity-40"
+      style={{
+        width: 'var(--tap-target)',
+        height: 'var(--tap-target)',
+        backgroundColor: 'var(--surface-2)',
+        color: 'var(--text-secondary)',
+      }}
+    >
+      {children}
+    </button>
   );
 }
 

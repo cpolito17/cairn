@@ -6,7 +6,8 @@
  * layer — this issue establishes the connection handling and the row mappers.
  */
 
-import type { Board, Context, Difficulty, Duration, Task } from '../shared/types';
+import { parseStoredSettings, SETTINGS_KEY } from '../shared/settings';
+import type { Board, Context, Difficulty, Settings, Task } from '../shared/types';
 
 export interface Env {
   DB: D1Database;
@@ -48,7 +49,8 @@ export interface TaskRow {
   notes: string | null;
   due_date: string | null;
   due_time: string | null;
-  duration: string | null;
+  duration_minutes: number | null;
+  scheduled_at: number | null;
   difficulty: number | null;
   priority: number;
   blocked: number;
@@ -80,7 +82,8 @@ export function rowToTask(row: TaskRow): Task {
     notes: row.notes,
     dueDate: row.due_date,
     dueTime: row.due_time,
-    duration: row.duration as Duration | null,
+    durationMinutes: row.duration_minutes,
+    scheduledAt: row.scheduled_at,
     difficulty: row.difficulty as Difficulty | null,
     priority: row.priority !== 0,
     blocked: row.blocked !== 0,
@@ -101,8 +104,8 @@ export function rowToTask(row: TaskRow): Task {
 const BOARD_COLUMNS =
   'id, context, name, description, position, archived_at, created_at, updated_at';
 const TASK_COLUMNS =
-  'id, board_id, name, notes, due_date, due_time, duration, difficulty, priority, blocked, ' +
-  'depends_on, position, created_at, completed_at, updated_at';
+  'id, board_id, name, notes, due_date, due_time, duration_minutes, scheduled_at, difficulty, ' +
+  'priority, blocked, depends_on, position, created_at, completed_at, updated_at';
 
 /**
  * Rows sort by position, then by id.
@@ -184,7 +187,8 @@ export interface NewTask {
   notes: string | null;
   dueDate: string | null;
   dueTime: string | null;
-  duration: Duration | null;
+  durationMinutes: number | null;
+  scheduledAt: number | null;
   difficulty: Difficulty | null;
   priority: boolean;
   blocked: boolean;
@@ -196,10 +200,10 @@ export async function insertTask(db: D1Database, task: NewTask, now = Date.now()
   const id = crypto.randomUUID();
   const row = await db
     .prepare(
-      `INSERT INTO tasks (id, board_id, name, notes, due_date, due_time, duration, difficulty,
-                          priority, blocked, depends_on, position, created_at, completed_at,
-                          updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+      `INSERT INTO tasks (id, board_id, name, notes, due_date, due_time, duration_minutes,
+                          scheduled_at, difficulty, priority, blocked, depends_on, position,
+                          created_at, completed_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
        RETURNING ${TASK_COLUMNS}`,
     )
     .bind(
@@ -209,7 +213,8 @@ export async function insertTask(db: D1Database, task: NewTask, now = Date.now()
       task.notes,
       task.dueDate,
       task.dueTime,
-      task.duration,
+      task.durationMinutes,
+      task.scheduledAt,
       task.difficulty,
       task.priority ? 1 : 0,
       task.blocked ? 1 : 0,
@@ -278,4 +283,42 @@ export async function deleteBoard(db: D1Database, id: string): Promise<boolean> 
 export async function deleteTask(db: D1Database, id: string): Promise<boolean> {
   const result = await db.prepare('DELETE FROM tasks WHERE id = ?').bind(id).run();
   return (result.meta.changes ?? 0) > 0;
+}
+
+/* --- settings ------------------------------------------------------------- */
+
+/**
+ * The stored settings document, or the defaults when there is none.
+ *
+ * A missing row is the normal state of a database nobody has written settings
+ * to, and a malformed one is a state the app must survive rather than fail on
+ * (§3.2) — `parseStoredSettings` handles both, and this function cannot fail
+ * for either reason.
+ */
+export async function selectSettings(db: D1Database): Promise<Settings> {
+  const row = await db
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .bind(SETTINGS_KEY)
+    .first<{ value: string }>();
+  return parseStoredSettings(row ? row.value : null);
+}
+
+/**
+ * Write the whole document. An upsert rather than an insert-or-update pair:
+ * there is one row, it may or may not exist yet, and both cases are the same
+ * statement.
+ */
+export async function upsertSettings(
+  db: D1Database,
+  settings: Settings,
+  now = Date.now(),
+): Promise<Settings> {
+  await db
+    .prepare(
+      `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    )
+    .bind(SETTINGS_KEY, JSON.stringify(settings), now)
+    .run();
+  return settings;
 }

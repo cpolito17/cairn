@@ -136,10 +136,10 @@ function DetailsCard({ task, placement }: { task: Task; placement: Placement }) 
       </Row>,
     );
   }
-  if (task.duration) {
+  if (task.durationMinutes !== null) {
     rows.push(
       <Row key="duration" icon={<Timer size={14} />}>
-        {formatDuration(task.duration)}
+        {formatDuration(task.durationMinutes)}
       </Row>,
     );
   }

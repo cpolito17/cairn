@@ -15,13 +15,43 @@ export function isContext(value: unknown): value is Context {
   return value === 'personal' || value === 'work';
 }
 
-/** The fixed duration options a task can carry. */
-export type Duration = '15m' | '30m' | '1h' | '2h' | '4h' | 'half-day';
+/**
+ * The duration chips the composer offers, in minutes: 15m · 30m · 1h · 2h · 4h.
+ *
+ * A *preset* list, not the set of legal values. A grid resize produces any
+ * multiple of 15 in `[MIN_DURATION_MINUTES, MAX_DURATION_MINUTES]`, and the
+ * composer shows those as "Custom" (V2 §9).
+ */
+export const DURATION_PRESETS = [15, 30, 60, 120, 240] as const;
 
-export const DURATIONS: readonly Duration[] = ['15m', '30m', '1h', '2h', '4h', 'half-day'] as const;
+/** The grid every schedule time and duration lands on, in minutes. */
+export const SCHEDULE_STEP_MINUTES = 15;
 
-export function isDuration(value: unknown): value is Duration {
-  return typeof value === 'string' && (DURATIONS as readonly string[]).includes(value);
+/** Shortest committed duration. */
+export const MIN_DURATION_MINUTES = 15;
+
+/** Longest committed duration — twelve hours. */
+export const MAX_DURATION_MINUTES = 720;
+
+/**
+ * The length a scheduled task with no committed duration occupies, in minutes.
+ *
+ * Dropping onto the grid does not invent a duration (V2 §3.1); the block simply
+ * renders at this length with a dotted outline until a resize commits one. Both
+ * the midnight-crossing rule and the lane packing measure such a block with
+ * this, so "how long is it" has one answer.
+ */
+export const DEFAULT_BLOCK_MINUTES = 30;
+
+/** True for a value that may be stored as a task's `durationMinutes`. */
+export function isValidDurationMinutes(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= MIN_DURATION_MINUTES &&
+    value <= MAX_DURATION_MINUTES &&
+    value % SCHEDULE_STEP_MINUTES === 0
+  );
 }
 
 /** 1..5, or null when the user has not set one. Unset is weighted as 3. */
@@ -56,7 +86,17 @@ export interface Task {
   dueDate: string | null;
   /** `HH:MM`, 24h. Only meaningful when `dueDate` is set. */
   dueTime: string | null;
-  duration: Duration | null;
+  /**
+   * The estimate, in minutes: a multiple of 15 in [15, 720], or null when the
+   * user has not committed a length.
+   */
+  durationMinutes: number | null;
+  /**
+   * Epoch ms of the local wall-clock start of this task's block, or null while
+   * unscheduled. Always snapped to the 15-minute grid. A task has at most one
+   * block (V2 §2); work needing two sittings is two tasks.
+   */
+  scheduledAt: number | null;
   difficulty: Difficulty | null;
   /** Binary flag, not a scale. */
   priority: boolean;
@@ -82,10 +122,43 @@ export interface Task {
   updatedAt: number;
 }
 
+/**
+ * User settings. V2 §3.2.
+ *
+ * Stored server-side as one JSON document under `key = 'settings'` rather than
+ * a column per value: five values read and written as a unit by one user, and
+ * every future planner preference would otherwise be a migration. The theme is
+ * deliberately *not* here — it has to apply before first paint, which rules out
+ * a fetch, so it stays in localStorage (V2 §2).
+ */
+export interface Settings {
+  /** Minutes from local midnight. Default 540 (9:00 AM). */
+  workdayStartMinutes: number;
+  /** Minutes from local midnight. Default 1020 (5:00 PM). Must exceed start. */
+  workdayEndMinutes: number;
+  plannerView: PlannerView;
+  plannerGroupByBoard: boolean;
+  plannerSort: PlannerSort;
+}
+
+export type PlannerView = 'week' | 'month' | 'year';
+
+export const PLANNER_VIEWS: readonly PlannerView[] = ['week', 'month', 'year'] as const;
+
+export type PlannerSort = 'priority' | 'difficulty' | 'dueDate' | 'duration';
+
+export const PLANNER_SORTS: readonly PlannerSort[] = [
+  'priority',
+  'difficulty',
+  'dueDate',
+  'duration',
+] as const;
+
 /** The whole world, as returned by the bootstrap read. */
 export interface AppState {
   boards: Board[];
   tasks: Task[];
+  settings: Settings;
 }
 
 /** The only error shape the API emits. */

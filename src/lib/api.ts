@@ -17,7 +17,14 @@
  * arrive as `ApiError` and the offline case gets `status: 0`.
  */
 
-import type { AppState, Board, Context, Difficulty, Duration, Task } from '../../shared/types';
+import type {
+  AppState,
+  Board,
+  Context,
+  Difficulty,
+  Settings,
+  Task,
+} from '../../shared/types';
 
 export class ApiError extends Error {
   /** HTTP status, or 0 when the request never reached the server. */
@@ -204,7 +211,10 @@ export interface TaskDraft {
   notes?: string | null;
   dueDate?: string | null;
   dueTime?: string | null;
-  duration?: Duration | null;
+  /** Minutes: a multiple of 15 in [15, 720], or null. */
+  durationMinutes?: number | null;
+  /** Epoch ms, snapped to the 15-minute grid, or null. */
+  scheduledAt?: number | null;
   difficulty?: Difficulty | null;
   priority?: boolean;
   blocked?: boolean;
@@ -218,7 +228,12 @@ export interface TaskPatch {
   notes?: string | null;
   dueDate?: string | null;
   dueTime?: string | null;
-  duration?: Duration | null;
+  /** Minutes: a multiple of 15 in [15, 720], or null. The server refuses
+   *  anything else rather than rounding it. */
+  durationMinutes?: number | null;
+  /** Epoch ms snapped to the 15-minute grid, or null to unschedule. A start
+   *  off the grid, or a block that would cross midnight, is a 400. */
+  scheduledAt?: number | null;
   difficulty?: Difficulty | null;
   priority?: boolean;
   blocked?: boolean;
@@ -240,4 +255,16 @@ export function updateTask(id: string, patch: TaskPatch): Promise<Task> {
 
 export async function deleteTask(id: string): Promise<void> {
   await call(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/* --- settings -------------------------------------------------------------- */
+
+/**
+ * Store the whole settings document and return what the server saved.
+ *
+ * There is no `getSettings`: the bootstrap read already carries them, so a
+ * separate fetch would be a round trip for data the client has (V2 §3.2).
+ */
+export function putSettings(settings: Settings): Promise<Settings> {
+  return callJson<Settings>('/api/settings', { method: 'PUT', body: settings });
 }

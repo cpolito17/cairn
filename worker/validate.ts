@@ -11,8 +11,17 @@
  * makes it impossible to validate a field and then forget to check the answer.
  */
 
-import { isContext, isDifficulty, isDuration } from '../shared/types';
-import type { Context, Difficulty, Duration } from '../shared/types';
+import { crossesMidnight, effectiveMinutes, isSnapped } from '../shared/schedule';
+import { isDayMinute, isPlannerSort, isPlannerView } from '../shared/settings';
+import {
+  MAX_DURATION_MINUTES,
+  MIN_DURATION_MINUTES,
+  SCHEDULE_STEP_MINUTES,
+  isContext,
+  isDifficulty,
+  isValidDurationMinutes,
+} from '../shared/types';
+import type { Context, Difficulty, Settings, Task } from '../shared/types';
 
 /** Longest a task name may be (§6.4: "up to ~120 characters"). */
 export const MAX_TASK_NAME = 120;
@@ -94,12 +103,104 @@ export function nullableDifficulty(value: unknown): Difficulty | null {
   return value;
 }
 
-export function nullableDuration(value: unknown): Duration | null {
+/**
+ * A duration in minutes: null, or an integer multiple of 15 in [15, 720].
+ *
+ * The grid is the reason for the multiple. A duration off the grid cannot be
+ * drawn on the Planner without either lying about it or re-snapping it, and a
+ * server that re-snaps silently is one the client's optimistic state disagrees
+ * with — so it is refused here instead.
+ */
+export function nullableDurationMinutes(value: unknown): number | null {
   if (value === null) return null;
-  if (!isDuration(value)) {
-    throw new BadRequest("duration must be one of '15m','30m','1h','2h','4h','half-day' or null");
+  if (!isValidDurationMinutes(value)) {
+    throw new BadRequest(
+      `durationMinutes must be a multiple of ${SCHEDULE_STEP_MINUTES} between ` +
+        `${MIN_DURATION_MINUTES} and ${MAX_DURATION_MINUTES}, or null`,
+    );
   }
   return value;
+}
+
+/**
+ * A block start: null, or epoch ms already snapped to the 15-minute grid.
+ *
+ * **Never rounded here.** The client snaps before it sends, and it draws the
+ * block where it snapped it; a server that quietly moved the value would leave
+ * the optimistic state and the stored row describing two different Tuesdays,
+ * and nothing would ever surface the difference. An unsnapped value is a client
+ * bug, and a 400 is how it gets found.
+ */
+export function nullableScheduledAt(value: unknown): number | null {
+  if (value === null) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new BadRequest('scheduledAt must be an epoch-millisecond integer or null');
+  }
+  if (!isSnapped(value)) {
+    throw new BadRequest(
+      `scheduledAt must be snapped to the ${SCHEDULE_STEP_MINUTES}-minute grid`,
+    );
+  }
+  return value;
+}
+
+/**
+ * A block may not cross local midnight (§3.1).
+ *
+ * Checked against the task's *resulting* state rather than the patch alone: a
+ * request that only lengthens the duration of an already-late block crosses
+ * midnight just as surely as one that moves it there, and the patch on its own
+ * cannot see that.
+ */
+export function assertBlockWithinDay(
+  resulting: Pick<Task, 'durationMinutes' | 'scheduledAt'>,
+): void {
+  if (resulting.scheduledAt === null) return;
+  if (crossesMidnight(resulting.scheduledAt, effectiveMinutes(resulting))) {
+    throw new BadRequest('a block may not cross midnight');
+  }
+}
+
+/**
+ * A whole settings document. `PUT /api/settings` takes all of it, so every
+ * field is required and a missing one is a 400 rather than a silent default —
+ * the lenient direction is for documents already in the database
+ * (`shared/settings.ts`), not for what a client is asking to store.
+ */
+export function requiredSettings(value: unknown): Settings {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new BadRequest('settings must be a JSON object');
+  }
+  const raw = value as Record<string, unknown>;
+
+  if (!isDayMinute(raw.workdayStartMinutes)) {
+    throw new BadRequest('workdayStartMinutes must be an integer between 0 and 1440');
+  }
+  if (!isDayMinute(raw.workdayEndMinutes)) {
+    throw new BadRequest('workdayEndMinutes must be an integer between 0 and 1440');
+  }
+  // A workday that ends before it starts describes no hours at all, and every
+  // surface that reads these two would have to invent a rule for it.
+  if (raw.workdayEndMinutes <= raw.workdayStartMinutes) {
+    throw new BadRequest('workdayEndMinutes must be greater than workdayStartMinutes');
+  }
+  if (!isPlannerView(raw.plannerView)) {
+    throw new BadRequest("plannerView must be 'week', 'month', or 'year'");
+  }
+  if (typeof raw.plannerGroupByBoard !== 'boolean') {
+    throw new BadRequest('plannerGroupByBoard must be true or false');
+  }
+  if (!isPlannerSort(raw.plannerSort)) {
+    throw new BadRequest("plannerSort must be 'priority', 'difficulty', 'dueDate', or 'duration'");
+  }
+
+  return {
+    workdayStartMinutes: raw.workdayStartMinutes,
+    workdayEndMinutes: raw.workdayEndMinutes,
+    plannerView: raw.plannerView,
+    plannerGroupByBoard: raw.plannerGroupByBoard,
+    plannerSort: raw.plannerSort,
+  };
 }
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;

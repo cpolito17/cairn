@@ -174,9 +174,9 @@ export function TaskRow({ task, onOpen, onToggle, highlighted = false }: TaskRow
               {due}
             </Chip>
           )}
-          {task.duration && (
+          {task.durationMinutes !== null && (
             <Chip icon={<Timer size={16} />} muted={shown}>
-              {formatDuration(task.duration)}
+              {formatDuration(task.durationMinutes)}
             </Chip>
           )}
           {task.difficulty !== null && <Pips value={task.difficulty} muted={shown} />}
