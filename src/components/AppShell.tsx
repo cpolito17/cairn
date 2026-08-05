@@ -30,12 +30,13 @@
  * both contexts, so there is no fetch to make.
  */
 
-import { CaretLeft, CloudSlash, Gear } from '@phosphor-icons/react';
+import { Briefcase, CaretLeft, CloudSlash, Gear, User } from '@phosphor-icons/react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { isDemo } from '../lib/demo';
 import { navigate, useRoute, VIEW_ROOTS, viewOf, type View } from '../lib/router';
 import { useStore } from '../lib/store';
+import type { Context } from '../../shared/types';
 import { SettingsSheet } from './SettingsSheet';
 import { Segmented } from './ui/Segmented';
 import { OUT } from '../lib/motion';
@@ -49,6 +50,7 @@ const VIEW_OPTIONS: { value: View; label: string }[] = [
 export function AppShell({ children, onSignedOut }: { children: ReactNode; onSignedOut(): void }) {
   const route = useRoute();
   const context = useStore((state) => state.context);
+  const setContext = useStore((state) => state.setContext);
   const online = useStore((state) => state.online);
   const [scrolled, setScrolled] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -150,6 +152,8 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
           </div>
 
           <div className="app-header-actions">
+            <ContextToggle context={context} onChange={setContext} />
+
             <button
               type="button"
               aria-haspopup="dialog"
@@ -186,6 +190,43 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
         onSignedOut={onSignedOut}
       />
     </div>
+  );
+}
+
+/**
+ * The Personal/Work switch, beside the gear rather than inside what it opens
+ * (V2 §4.3 moved out — see `SettingsSheet.tsx`). One pill reading the current
+ * context — its name, then a `User`/`Briefcase` glyph for it — that flips to
+ * the other context on press, rather than a segmented pair: there are only
+ * two contexts and this control's whole job is "say which one and let me
+ * switch," which one pill already does in the header's tightest slot.
+ *
+ * A press here does the same thing the old settings-sheet control did on
+ * change: the whole app reads from the new context immediately, no fetch and
+ * no confirmation, because `/api/state` already holds both.
+ */
+function ContextToggle({
+  context,
+  onChange,
+}: {
+  context: Context;
+  onChange(context: Context): void;
+}) {
+  const personal = context === 'personal';
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(personal ? 'work' : 'personal')}
+      aria-label={`Switch to ${personal ? 'Work' : 'Personal'}`}
+      className="pressable hoverable flex shrink-0 items-center gap-2 rounded-pill bg-surface-2
+                 px-3 text-text-secondary"
+      style={{ height: 'var(--tap-target)' }}
+    >
+      <span className="text-meta" style={{ fontWeight: 600 }}>
+        {personal ? 'Personal' : 'Work'}
+      </span>
+      {personal ? <User size={18} /> : <Briefcase size={18} />}
+    </button>
   );
 }
 

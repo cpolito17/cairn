@@ -16,6 +16,17 @@ export function useOverlay(
   open: boolean,
   onClose: () => void,
   container: RefObject<HTMLElement | null>,
+  /**
+   * Default true: focus the first focusable descendant, as below. Set false
+   * for the one sheet where that descendant is a bare `<select>` with nothing
+   * else ahead of it (the Planner's Unscheduled sort control) — focusing a
+   * `<select>` programmatically pops its native picker open on some mobile
+   * browsers, so "the first thing inside" is the wrong default there. `false`
+   * still traps Tab and Escape exactly as `true` does; it only changes what
+   * receives focus at the moment the overlay opens, falling back to the
+   * container itself, same as an overlay with no focusable content at all.
+   */
+  autoFocus = true,
 ): void {
   // `onClose` is read through a ref rather than depended on.
   //
@@ -37,8 +48,9 @@ export function useOverlay(
     document.body.style.overflow = 'hidden';
 
     // Focus the first thing inside rather than leaving the caret behind the
-    // scrim, where the next Tab would walk the page underneath.
-    const first = container.current?.querySelector<HTMLElement>(FOCUSABLE);
+    // scrim, where the next Tab would walk the page underneath — unless the
+    // caller already knows that's the wrong element to land on.
+    const first = autoFocus ? container.current?.querySelector<HTMLElement>(FOCUSABLE) : null;
     (first ?? container.current)?.focus();
 
     function onKeyDown(event: KeyboardEvent) {
@@ -71,5 +83,5 @@ export function useOverlay(
       document.body.style.overflow = overflow;
       opener?.focus?.();
     };
-  }, [open, container]);
+  }, [open, container, autoFocus]);
 }

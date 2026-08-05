@@ -393,7 +393,11 @@ export function Planner() {
       </div>
 
       {!wide && (
-        <Sheet open={listOpen} onClose={() => setListOpen(false)} title="Unscheduled">
+        // autoFocus off: the sheet's first focusable descendant is the Sort
+        // <select>, and some mobile browsers pop a <select>'s native picker
+        // open the instant it receives programmatic focus — which read as
+        // "the Sort menu opens by itself" the moment this sheet did.
+        <Sheet open={listOpen} onClose={() => setListOpen(false)} title="Unscheduled" autoFocus={false}>
           <div className="px-gutter pb-6">
             <UnscheduledList
               context={context}

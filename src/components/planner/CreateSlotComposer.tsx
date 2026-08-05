@@ -23,6 +23,7 @@
 import { Flag, Prohibit } from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
 import { addTask } from '../../lib/actions';
+import { hasFinePointer } from '../../lib/motion';
 import { createEventSpec, selectBoardsFor, useStore } from '../../lib/store';
 import { localDateKey } from '../../../shared/events';
 import { startOfLocalDay } from '../../../shared/schedule';
@@ -121,12 +122,21 @@ export function CreateSlotComposer({
     // side is new territory.
     setTask({ ...emptyTaskFields(), durationMinutes });
     setEvent(eventFieldsFromBox(scheduledAt, durationMinutes));
+
     // This is a typing surface first — land the caret in Name rather than
     // leaving it on the close button, which is where the overlay's own focus
-    // trap puts it (`useOverlay`, on `Modal`/`Sheet`). That trap's effect is a
-    // descendant of this one and effects commit child-first, so calling this
-    // here — after it, not before — is what makes this the focus that sticks.
-    nameRef.current?.focus();
+    // trap puts it (`useOverlay`, on `Modal`/`Sheet`). Deferred a tick so it
+    // runs after that trap and after the sheet's opening frame commits —
+    // calling it synchronously raced the sheet's enter transform and dragged
+    // the page's scroll to wherever the field's still-animating position
+    // happened to be. Skipped on touch entirely, same as `TaskComposer`: this
+    // whole composer is reachable only from the grid's drag-to-create gesture,
+    // which is a fine-pointer-only affordance now (see Schedule.tsx), so this
+    // mainly guards the fine-pointer-but-no-hover edge case rather than a real
+    // touch path — but it costs nothing to keep the two composers consistent.
+    if (!hasFinePointer()) return;
+    const handle = window.setTimeout(() => nameRef.current?.focus(), 0);
+    return () => window.clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 

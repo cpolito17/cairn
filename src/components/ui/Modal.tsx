@@ -18,11 +18,13 @@ export interface ModalProps {
   /** Rendered as the heading; omit to label the dialog without showing it. */
   showTitle?: boolean;
   children: ReactNode;
+  /** See `useOverlay`. Default true. */
+  autoFocus?: boolean;
 }
 
-export function Modal({ open, onClose, title, showTitle = true, children }: ModalProps) {
+export function Modal({ open, onClose, title, showTitle = true, children, autoFocus = true }: ModalProps) {
   const panel = useRef<HTMLDivElement>(null);
-  useOverlay(open, onClose, panel);
+  useOverlay(open, onClose, panel, autoFocus);
   const keyboard = keyboardMotionActive();
 
   return (

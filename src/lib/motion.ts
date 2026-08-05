@@ -153,3 +153,19 @@ export function prefersReducedMotion(): boolean {
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
   );
 }
+
+/**
+ * The same `(hover: hover) and (pointer: fine)` signal §8.5 already gates
+ * hover motion behind, reused here for autofocus: a touch device that jumps
+ * straight into a field on open also pops the on-screen keyboard immediately,
+ * and the combination of that viewport resize with a sheet still mid-enter
+ * transform is what produces the stray horizontal scroll on mobile. Read at
+ * the moment, same as `prefersReducedMotion` — an autofocus decision is made
+ * once, imperatively, when a dialog opens, not subscribed to.
+ */
+export function hasFinePointer(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    window.matchMedia('(hover: hover) and (pointer: fine)').matches
+  );
+}
