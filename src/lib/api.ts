@@ -20,6 +20,7 @@
 import type {
   AppState,
   Board,
+  BoardAccent,
   Context,
   Difficulty,
   Settings,
@@ -180,12 +181,14 @@ export interface BoardDraft {
   context: Context;
   name: string;
   description?: string | null;
+  accent?: BoardAccent | null;
   position: string;
 }
 
 export interface BoardPatch {
   name?: string;
   description?: string | null;
+  accent?: BoardAccent | null;
   position?: string;
   /** The wire says `archived: true`; the server records when. */
   archived?: boolean;

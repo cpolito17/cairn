@@ -20,6 +20,7 @@ function board(overrides: Partial<Board> = {}): Board {
     context: 'personal',
     name: `board ${seq}`,
     description: null,
+    accent: null,
     position: `a${seq}`,
     archivedAt: null,
     createdAt: 0,

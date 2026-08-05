@@ -19,9 +19,15 @@ export interface ProgressBarProps {
   /** Whole-number percentage, 0–100, from `boardProgress()`. */
   percent: number;
   label?: string;
+  /** Optional board-specific fill. Defaults to the active theme accent. */
+  color?: string;
 }
 
-export function ProgressBar({ percent, label = 'Board progress' }: ProgressBarProps) {
+export function ProgressBar({
+  percent,
+  label = 'Board progress',
+  color = 'var(--accent)',
+}: ProgressBarProps) {
   const clamped = Math.max(0, Math.min(100, percent));
 
   return (
@@ -36,8 +42,9 @@ export function ProgressBar({ percent, label = 'Board progress' }: ProgressBarPr
     >
       <span
         aria-hidden="true"
-        className="absolute inset-0 block bg-accent"
+        className="absolute inset-0 block"
         style={{
+          backgroundColor: color,
           borderRadius: 'var(--radius-pill)',
           transformOrigin: 'left center',
           transform: `scaleX(${clamped / 100})`,

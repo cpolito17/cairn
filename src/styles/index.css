@@ -330,6 +330,39 @@
     display: none;
   }
 
+  /* Dashboard waterfall: cards flow into the next available vertical space,
+     keeping one consistent gap inside every column regardless of card height. */
+  .board-masonry {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-flow: row dense;
+    grid-auto-rows: 1px;
+    column-gap: var(--space-3);
+  }
+
+  .board-masonry > [data-reorderable-row] {
+    grid-row-end: span var(--masonry-span, 200);
+    min-width: 0;
+  }
+
+  @media (min-width: 640px) {
+    .board-masonry {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .board-masonry {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .board-masonry {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
   /* §9.2: translucent header over scrolling content. */
   .app-header {
     background-color: color-mix(in srgb, var(--surface) 72%, transparent);

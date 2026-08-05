@@ -7,7 +7,7 @@
  */
 
 import { parseStoredSettings, SETTINGS_KEY } from '../shared/settings';
-import type { Board, Context, Difficulty, Settings, Task } from '../shared/types';
+import type { Board, BoardAccent, Context, Difficulty, Settings, Task } from '../shared/types';
 
 export interface Env {
   DB: D1Database;
@@ -35,6 +35,7 @@ export interface BoardRow {
   context: string;
   name: string;
   description: string | null;
+  accent: string | null;
   position: string;
   archived_at: number | null;
   created_at: number;
@@ -67,6 +68,7 @@ export function rowToBoard(row: BoardRow): Board {
     context: row.context as Context,
     name: row.name,
     description: row.description,
+    accent: row.accent as BoardAccent | null,
     position: row.position,
     archivedAt: row.archived_at,
     createdAt: row.created_at,
@@ -102,7 +104,7 @@ export function rowToTask(row: TaskRow): Task {
  * adds a column cannot silently change what the mappers above receive.
  */
 const BOARD_COLUMNS =
-  'id, context, name, description, position, archived_at, created_at, updated_at';
+  'id, context, name, description, accent, position, archived_at, created_at, updated_at';
 const TASK_COLUMNS =
   'id, board_id, name, notes, due_date, due_time, duration_minutes, scheduled_at, difficulty, ' +
   'priority, blocked, depends_on, position, created_at, completed_at, updated_at';
@@ -161,6 +163,7 @@ export interface NewBoard {
   context: Context;
   name: string;
   description: string | null;
+  accent: BoardAccent | null;
   position: string;
 }
 
@@ -172,11 +175,11 @@ export async function insertBoard(
   const id = crypto.randomUUID();
   const row = await db
     .prepare(
-      `INSERT INTO boards (id, context, name, description, position, archived_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+      `INSERT INTO boards (id, context, name, description, accent, position, archived_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
        RETURNING ${BOARD_COLUMNS}`,
     )
-    .bind(id, board.context, board.name, board.description, board.position, now, now)
+    .bind(id, board.context, board.name, board.description, board.accent, board.position, now, now)
     .first<BoardRow>();
   return rowToBoard(row as BoardRow);
 }

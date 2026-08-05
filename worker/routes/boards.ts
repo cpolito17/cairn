@@ -17,6 +17,7 @@ import {
   absent,
   boolean,
   jsonBody,
+  nullableBoardAccent,
   nullableText,
   requiredContext,
   requiredName,
@@ -30,6 +31,7 @@ async function create(request: Request, env: Env): Promise<Response> {
     context: requiredContext(body.context),
     name: requiredName(body.name, MAX_BOARD_NAME, 'name'),
     description: absent(body, 'description') ? null : nullableText(body.description, 'description'),
+    accent: absent(body, 'accent') ? null : nullableBoardAccent(body.accent),
     position: requiredPosition(body.position),
   });
 
@@ -44,6 +46,7 @@ async function patch(request: Request, env: Env, id: string): Promise<Response> 
   if (!absent(body, 'description')) {
     columns.description = nullableText(body.description, 'description');
   }
+  if (!absent(body, 'accent')) columns.accent = nullableBoardAccent(body.accent);
   if (!absent(body, 'position')) columns.position = requiredPosition(body.position);
   // Archive is a timestamp, not a flag: the wire says `archived: true`, the
   // column records when. Un-archiving discards the timestamp rather than

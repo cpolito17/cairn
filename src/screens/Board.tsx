@@ -48,6 +48,7 @@ import {
   useStore,
 } from '../lib/store';
 import type { Task } from '../../shared/types';
+import { boardAccentColor } from '../lib/boardAccent';
 
 /** Which dialog, if any, the screen has open. */
 type Composer = { mode: 'closed' } | { mode: 'create' } | { mode: 'edit'; task: Task };
@@ -109,7 +110,20 @@ export function Board({ id }: { id: string }) {
       <header className="mb-section">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <h1 className="text-board-title text-text">{board?.name ?? 'Board'}</h1>
+            <div className="flex items-center gap-3">
+              {board && (
+                <span
+                  aria-hidden="true"
+                  className="block shrink-0 rounded-pill"
+                  style={{
+                    width: '12px',
+                    height: '12px',
+                    backgroundColor: boardAccentColor(board.accent),
+                  }}
+                />
+              )}
+              <h1 className="text-board-title text-text">{board?.name ?? 'Board'}</h1>
+            </div>
             {board?.description && (
               <p className="mt-1 text-body text-text-secondary">{board.description}</p>
             )}
@@ -164,7 +178,14 @@ export function Board({ id }: { id: string }) {
 
         <div className="mt-5 flex items-center gap-3">
           <span className="min-w-0 flex-1">
-            <ProgressBar percent={progress.percent} />
+            {board ? (
+              <ProgressBar
+                percent={progress.percent}
+                color={boardAccentColor(board.accent)}
+              />
+            ) : (
+              <ProgressBar percent={progress.percent} />
+            )}
           </span>
           <span className="shrink-0 text-hero text-text">
             <NumberTicker value={progress.percent} />

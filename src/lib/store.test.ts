@@ -50,6 +50,7 @@ function board(over: Partial<Board> = {}): Board {
     context: 'personal',
     name: 'Board',
     description: null,
+    accent: null,
     position: 'a1',
     archivedAt: null,
     createdAt: 1,
@@ -132,16 +133,27 @@ describe('mutate — success', () => {
     const pending = deferred<Board>();
     mocked.createBoard.mockReturnValue(pending.promise);
 
-    const spec = createBoardSpec({ context: 'personal', name: 'Kitchen', position: 'a1' });
+    const spec = createBoardSpec({
+      context: 'personal',
+      name: 'Kitchen',
+      accent: 'violet',
+      position: 'a1',
+    });
     const running = useStore.getState().mutate(spec);
 
     // Optimistic: the row is on screen while the request is still in flight.
     const optimistic = selectBoardsFor(useStore.getState(), 'personal');
     expect(optimistic).toHaveLength(1);
     expect(optimistic[0].name).toBe('Kitchen');
+    expect(optimistic[0].accent).toBe('violet');
+    expect(mocked.createBoard).toHaveBeenCalledWith(
+      expect.objectContaining({ accent: 'violet' }),
+    );
 
     // The server is authoritative — including for the id, which it mints itself.
-    pending.resolve(board({ id: 'server-id', name: 'Kitchen', updatedAt: 99 }));
+    pending.resolve(
+      board({ id: 'server-id', name: 'Kitchen', accent: 'violet', updatedAt: 99 }),
+    );
     await running;
 
     const settled = selectBoardsFor(useStore.getState(), 'personal');

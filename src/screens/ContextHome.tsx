@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { BoardCard } from '../components/BoardCard';
 import { BoardEditor } from '../components/BoardEditor';
+import { TaskComposer } from '../components/TaskComposer';
 import { Reorderable } from '../components/Reorderable';
 import { reorderBoard } from '../lib/actions';
 import { UpNext, UpNextSkeleton } from '../components/UpNext';
@@ -23,12 +24,15 @@ import { SkeletonCard } from '../components/ui/Skeleton';
 import { claimColdLoad, staggerDelay } from '../lib/coldload';
 import { useBoards, useStore } from '../lib/store';
 import { OUT } from '../lib/motion';
+import type { Board, Task } from '../../shared/types';
 
 export function ContextHome() {
   const context = useStore((state) => state.context);
   const status = useStore((state) => state.status);
   const boards = useBoards(context);
   const [creating, setCreating] = useState(false);
+  const [editingBoard, setEditingBoard] = useState<Board | null>(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
 
   if (status === 'loading') return <HomeSkeleton />;
   if (status === 'error') return <HomeError />;
@@ -55,7 +59,7 @@ export function ContextHome() {
 
   return (
     <>
-      <UpNext context={context} />
+      <UpNext context={context} onOpenTask={setEditingTask} />
 
       <section>
         <SectionHeader
@@ -80,23 +84,42 @@ export function ContextHome() {
           items={boards}
           getKey={(board) => board.id}
           onReorder={reorderBoard}
-          className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          className="board-masonry"
+          masonry
           liftRadius="var(--radius-card)"
           aria-label="Boards"
         >
           {(board, { index }) => (
             <StaggeredCard index={index} boardId={board.id}>
-              <BoardCard board={board} />
+              <BoardCard
+                board={board}
+                onEditBoard={() => setEditingBoard(board)}
+                onEditTask={setEditingTask}
+              />
             </StaggeredCard>
           )}
         </Reorderable>
       </section>
 
       <BoardEditor
-        open={creating}
-        onClose={() => setCreating(false)}
+        open={creating || editingBoard !== null}
+        onClose={() => {
+          setCreating(false);
+          setEditingBoard(null);
+        }}
+        {...(editingBoard ? { board: editingBoard } : {})}
         context={context}
       />
+
+      {editingTask && (
+        <TaskComposer
+          open
+          onClose={() => setEditingTask(null)}
+          task={editingTask}
+          boardId={editingTask.boardId}
+          context={context}
+        />
+      )}
     </>
   );
 }

@@ -64,11 +64,33 @@ export function isDifficulty(value: unknown): value is Difficulty {
   return value === 1 || value === 2 || value === 3 || value === 4 || value === 5;
 }
 
+/** Optional per-board progress accent. Null follows the active theme accent. */
+export const BOARD_ACCENTS = [
+  'coral',
+  'amber',
+  'lime',
+  'emerald',
+  'teal',
+  'cyan',
+  'blue',
+  'indigo',
+  'violet',
+  'rose',
+] as const;
+
+export type BoardAccent = (typeof BOARD_ACCENTS)[number];
+
+export function isBoardAccent(value: unknown): value is BoardAccent {
+  return BOARD_ACCENTS.includes(value as BoardAccent);
+}
+
 export interface Board {
   id: string;
   context: Context;
   name: string;
   description: string | null;
+  /** Progress-bar and board-dot accent. Null follows the active theme. */
+  accent: BoardAccent | null;
   /** Fractional index within its context. See `shared/order.ts`. */
   position: string;
   /** Epoch ms when archived, or null while active. */

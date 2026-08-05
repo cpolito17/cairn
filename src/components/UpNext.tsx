@@ -21,7 +21,6 @@ import { claimColdLoad, staggerDelay } from '../lib/coldload';
 import { usePersistedCollapse, upNextKey } from '../lib/collapse';
 import { formatBlockTime, formatDue, formatOverdue } from '../lib/dates';
 import { toggleComplete } from '../lib/actions';
-import { boardPath, navigate } from '../lib/router';
 import { useStore, useUpNext } from '../lib/store';
 import { isScheduledEntry } from '../../shared/upnext';
 import type { Context, Task } from '../../shared/types';
@@ -30,7 +29,13 @@ import { TaskDetails } from './TaskDetails';
 import { Collapsible, SectionHeader } from './ui/Section';
 import { OUT } from '../lib/motion';
 
-export function UpNext({ context }: { context: Context }) {
+export function UpNext({
+  context,
+  onOpenTask,
+}: {
+  context: Context;
+  onOpenTask(task: Task): void;
+}) {
   const tasks = useUpNext(context);
   const [collapsed, toggle] = usePersistedCollapse(upNextKey(context));
   // Cold load only: navigating away and back must not replay the entrance.
@@ -69,7 +74,7 @@ export function UpNext({ context }: { context: Context }) {
                 transition={{ duration: 0.24, ease: OUT, delay: cold ? staggerDelay(index) : 0 }}
               >
                 <TaskDetails task={task} className="block h-full">
-                  <UpNextCard task={task} />
+                  <UpNextCard task={task} onOpenTask={onOpenTask} />
                 </TaskDetails>
               </motion.li>
             ))}
@@ -80,7 +85,7 @@ export function UpNext({ context }: { context: Context }) {
   );
 }
 
-function UpNextCard({ task }: { task: Task }) {
+function UpNextCard({ task, onOpenTask }: { task: Task; onOpenTask(task: Task): void }) {
   const board = useStore((state) => state.boards[task.boardId]);
   const [now] = useState(() => Date.now());
   // An entry present because of its block leads with the scheduled time behind
@@ -127,10 +132,8 @@ function UpNextCard({ task }: { task: Task }) {
 
       <button
         type="button"
-        onClick={() =>
-          navigate(boardPath(task.boardId), { state: { highlightTaskId: task.id } })
-        }
-        className="pressable hoverable min-w-0 flex-1 rounded-card py-3 pr-2 text-left"
+        onClick={() => onOpenTask(task)}
+        className="pressable hoverable min-w-0 flex-1 rounded-card px-3 py-3 text-left"
       >
         <span className="flex items-start gap-1">
           <span

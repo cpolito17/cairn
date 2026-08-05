@@ -24,6 +24,7 @@ import {
   useStore,
 } from '../lib/store';
 import type { Board } from '../../shared/types';
+import { boardAccentColor } from '../lib/boardAccent';
 
 export function Archived() {
   const context = useStore((state) => state.context);
@@ -67,9 +68,20 @@ function ArchivedRow({ board }: { board: Board }) {
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <h2 className="text-row text-text" style={{ fontWeight: 600 }}>
-            {board.name}
-          </h2>
+          <div className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="block shrink-0 rounded-pill"
+              style={{
+                width: '10px',
+                height: '10px',
+                backgroundColor: boardAccentColor(board.accent),
+              }}
+            />
+            <h2 className="text-row text-text" style={{ fontWeight: 600 }}>
+              {board.name}
+            </h2>
+          </div>
           <p className="mt-1 text-meta text-text-secondary">
             {done} of {total} {total === 1 ? 'task' : 'tasks'}
           </p>
@@ -80,7 +92,11 @@ function ArchivedRow({ board }: { board: Board }) {
       </div>
 
       <div className="mt-4">
-        <ProgressBar percent={percent} label={`${board.name} progress`} />
+        <ProgressBar
+          percent={percent}
+          label={`${board.name} progress`}
+          color={boardAccentColor(board.accent)}
+        />
       </div>
 
       <div className="mt-4 flex items-center gap-2">

@@ -43,6 +43,19 @@
   --negative: #fb7185;
   --scrim: rgba(2, 12, 18, 0.55);
 
+  /* Optional board accents. These are data colours chosen by the user, not
+     replacements for the theme accent that continues to own interaction. */
+  --board-accent-coral: #fb7185;
+  --board-accent-amber: #f59e0b;
+  --board-accent-lime: #84cc16;
+  --board-accent-emerald: #10b981;
+  --board-accent-teal: #14b8a6;
+  --board-accent-cyan: #06b6d4;
+  --board-accent-blue: #3b82f6;
+  --board-accent-indigo: #6366f1;
+  --board-accent-violet: #8b5cf6;
+  --board-accent-rose: #f43f5e;
+
   /* Shadows: soft and vertical, never harsh. In a dark theme elevation reads
      primarily as a lighter surface step, so these stay restrained. */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);

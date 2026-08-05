@@ -86,6 +86,8 @@ export interface ReorderableProps<T> {
   /** Applied to the list element. The board cards pass their grid here. */
   className?: string;
   itemClassName?: string;
+  /** Measure variable-height items into a dense CSS-grid waterfall. */
+  masonry?: boolean;
   /** Radius of the lifted row's elevated surface. */
   liftRadius?: string;
   disabled?: boolean;
@@ -174,6 +176,7 @@ function ReorderableList<T>({
   children,
   className,
   itemClassName,
+  masonry = false,
   liftRadius = 'var(--radius-control)',
   disabled = false,
   refuseBelow = false,
@@ -396,9 +399,6 @@ function ReorderableList<T>({
 
     const origin = slots[index];
     const grid = slots.some((slot) => Math.abs(slot.left - origin.left) > 1);
-    const first = slots[0];
-    const last = slots[slots.length - 1];
-
     const drag: Drag = {
       key: candidate.key,
       index,
@@ -416,8 +416,11 @@ function ReorderableList<T>({
       startDocY: candidate.clientY + scrollY,
       minX: Math.min(...slots.map((slot) => slot.left)) - origin.left,
       maxX: Math.max(...slots.map((slot) => slot.left + slot.width)) - origin.width - origin.left,
-      minY: first.top - origin.top,
-      maxY: last.top + last.height - origin.height - origin.top,
+      minY: Math.min(...slots.map((slot) => slot.top)) - origin.top,
+      maxY:
+        Math.max(...slots.map((slot) => slot.top + slot.height)) -
+        origin.height -
+        origin.top,
       target: index,
       offsets: new Map(),
       samples: [],
@@ -670,6 +673,7 @@ function ReorderableList<T>({
               key={key}
               itemKey={key}
               className={itemClassName}
+              masonry={masonry}
               liftRadius={liftRadius}
               dragging={dragging}
               onPointerDown={(event) => onPointerDown(event, key)}
@@ -720,6 +724,7 @@ function Boundary({
 function ReorderableRow({
   itemKey,
   className,
+  masonry,
   liftRadius,
   dragging,
   onPointerDown,
@@ -729,6 +734,7 @@ function ReorderableRow({
 }: {
   itemKey: string;
   className: string | undefined;
+  masonry: boolean;
   liftRadius: string;
   dragging: boolean;
   onPointerDown(event: ReactPointerEvent<HTMLLIElement>): void;
@@ -736,7 +742,34 @@ function ReorderableRow({
   onClickCapture(event: ReactMouseEvent): void;
   children: ReactNode;
 }) {
-  const ref = useFlipRef(itemKey);
+  const flipRef = useFlipRef(itemKey);
+  const rowRef = useRef<HTMLLIElement | null>(null);
+  const ref = useCallback(
+    (el: HTMLLIElement | null) => {
+      rowRef.current = el;
+      return flipRef(el);
+    },
+    [flipRef],
+  );
+
+  useLayoutEffect(() => {
+    if (!masonry) return;
+    const row = rowRef.current;
+    const content = row?.querySelector<HTMLElement>('[data-masonry-content]');
+    if (!row || !content) return;
+
+    const measure = () => {
+      const height = content.getBoundingClientRect().height;
+      const gap = row.parentElement
+        ? Number.parseFloat(getComputedStyle(row.parentElement).columnGap) || 0
+        : 0;
+      row.style.setProperty('--masonry-span', String(Math.ceil(height + gap)));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [masonry]);
 
   return (
     <li
@@ -774,7 +807,13 @@ function ReorderableRow({
           transition: 'opacity 150ms var(--ease-out)',
         }}
       />
-      {children}
+      {masonry ? (
+        <div data-masonry-content="" className="min-w-0">
+          {children}
+        </div>
+      ) : (
+        children
+      )}
     </li>
   );
 }

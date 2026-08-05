@@ -18,10 +18,10 @@
  *
  * The card is no longer one big link. It cannot be: a button inside an anchor
  * is invalid and, in practice, unclickable. The header and each task name are
- * links; the check-off buttons are their siblings.
+ * separate controls; the check-off buttons are their siblings.
  */
 
-import { Check, LinkSimple } from '@phosphor-icons/react';
+import { ArrowRight, Check, LinkSimple } from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
 import { toggleComplete } from '../lib/actions';
 import { prefersReducedMotion } from '../lib/motion';
@@ -30,16 +30,26 @@ import { TaskDetails } from './TaskDetails';
 import { boardPath, Link } from '../lib/router';
 import type { Board, Task } from '../../shared/types';
 import { NumberTicker, ProgressBar } from './ProgressBar';
+import { boardAccentColor } from '../lib/boardAccent';
 
 /** How many task names a card previews before it stops and counts the rest. */
 const PREVIEW_LIMIT = 5;
 
-export function BoardCard({ board }: { board: Board }) {
+export function BoardCard({
+  board,
+  onEditBoard,
+  onEditTask,
+}: {
+  board: Board;
+  onEditBoard(): void;
+  onEditTask(task: Task): void;
+}) {
   const { percent, done, total } = useBoardProgress(board.id);
   const active = useActiveTasks(board.id);
   const preview = active.slice(0, PREVIEW_LIMIT);
   const overflow = active.length - preview.length;
   const to = boardPath(board.id);
+  const accent = boardAccentColor(board.accent);
 
   return (
     <div
@@ -57,17 +67,42 @@ export function BoardCard({ board }: { board: Board }) {
         {/* The header is the card's navigation, and the hover belongs to it
             rather than to the whole card — the hover has to point at what is
             actually clickable now that the task rows are not. */}
-        <Link to={to} className="pressable hoverable -m-2 block rounded-control p-2">
-          <h3 className="text-row text-text" style={{ fontWeight: 600 }}>
-            {board.name}
-          </h3>
+        <div className="-m-2 flex items-center gap-1">
+          <button
+            type="button"
+            data-no-drag=""
+            onClick={onEditBoard}
+            className="pressable hoverable flex min-w-0 flex-1 items-center gap-2 rounded-control px-2 py-2 text-left"
+            aria-label={`Edit ${board.name}`}
+          >
+            <span
+              aria-hidden="true"
+              className="block shrink-0 rounded-pill"
+              style={{ width: '10px', height: '10px', backgroundColor: accent }}
+            />
+            <h3 className="min-w-0 truncate text-row text-text" style={{ fontWeight: 600 }}>
+              {board.name}
+            </h3>
+          </button>
+          <Link
+            to={to}
+            data-no-drag=""
+            className="pressable hoverable flex shrink-0 items-center justify-center rounded-control text-text-secondary"
+            style={{ width: 'var(--tap-target)', height: 'var(--tap-target)' }}
+            aria-label={`Open ${board.name}`}
+          >
+            <ArrowRight size={18} />
+          </Link>
+        </div>
+
+        <Link to={to} className="pressable hoverable -mx-2 mt-2 block rounded-control px-2 pb-2">
           {board.description && (
             <p className="mt-1 truncate text-meta text-text-secondary">{board.description}</p>
           )}
 
           <div className="mt-5 flex items-center gap-3">
             <span className="min-w-0 flex-1">
-              <ProgressBar percent={percent} label={`${board.name} progress`} />
+              <ProgressBar percent={percent} label={`${board.name} progress`} color={accent} />
             </span>
             <span className="shrink-0 text-row text-text" style={{ fontWeight: 600 }}>
               <NumberTicker value={percent} />
@@ -81,7 +116,7 @@ export function BoardCard({ board }: { board: Board }) {
 
         <ul className="mt-3" aria-label={`${board.name} tasks`}>
           {preview.map((task) => (
-            <PreviewRow key={task.id} task={task} to={to} />
+            <PreviewRow key={task.id} task={task} onEditTask={onEditTask} />
           ))}
 
           {preview.length === 0 && (
@@ -106,7 +141,7 @@ export function BoardCard({ board }: { board: Board }) {
  * difficulty and the rest — so the card can stay a list of names without the
  * information being lost.
  */
-function PreviewRow({ task, to }: { task: Task; to: string }) {
+function PreviewRow({ task, onEditTask }: { task: Task; onEditTask(task: Task): void }) {
   // A task waiting on an incomplete prerequisite reads as unavailable here for
   // the same reason it does on the board, and its button refuses in the same
   // way (§6.4).
@@ -114,8 +149,10 @@ function PreviewRow({ task, to }: { task: Task; to: string }) {
 
   return (
     <TaskDetails task={task} className="flex items-center gap-1">
-      <Link
-        to={to}
+      <button
+        type="button"
+        data-no-drag=""
+        onClick={() => onEditTask(task)}
         className="hoverable -ml-2 min-w-0 flex-1 truncate rounded-chip px-2 py-1 text-meta"
         style={{ color: waiting ? 'var(--text-tertiary)' : 'var(--text-secondary)' }}
       >
@@ -130,7 +167,7 @@ function PreviewRow({ task, to }: { task: Task; to: string }) {
           <LinkSimple size={12} className="mr-1 inline-block shrink-0 align-middle" />
         )}
         {task.name}
-      </Link>
+      </button>
       <CompleteButton task={task} waitingOn={waiting?.name ?? null} />
     </TaskDetails>
   );

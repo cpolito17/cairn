@@ -37,7 +37,7 @@ import {
   type TaskGroup,
 } from '../../shared/planner';
 import { DEFAULT_SETTINGS } from '../../shared/settings';
-import type { Board, Context, PlannerSort, Settings, Task } from '../../shared/types';
+import type { Board, BoardAccent, Context, PlannerSort, Settings, Task } from '../../shared/types';
 import { upNext } from '../../shared/upnext';
 import * as api from './api';
 import { ApiError } from './api';
@@ -699,6 +699,7 @@ export interface NewBoard {
   context: Context;
   name: string;
   description?: string | null;
+  accent?: BoardAccent | null;
   position: string;
 }
 
@@ -709,6 +710,7 @@ export function createBoardSpec(draft: NewBoard): MutationSpec<Board> {
     context: draft.context,
     name: draft.name,
     description: draft.description ?? null,
+    accent: draft.accent ?? null,
     position: draft.position,
     archivedAt: null,
     createdAt: now,
@@ -725,6 +727,7 @@ export function createBoardSpec(draft: NewBoard): MutationSpec<Board> {
         context: optimistic.context,
         name: optimistic.name,
         description: optimistic.description,
+        accent: optimistic.accent,
         position: optimistic.position,
       }),
     reconcile: (data, board) => replaceBoardId(data, optimistic.id, board),
@@ -736,6 +739,7 @@ export function updateBoardSpec(board: Board, patch: api.BoardPatch): MutationSp
     ...board,
     ...(patch.name === undefined ? {} : { name: patch.name }),
     ...(patch.description === undefined ? {} : { description: patch.description }),
+    ...(patch.accent === undefined ? {} : { accent: patch.accent }),
     ...(patch.position === undefined ? {} : { position: patch.position }),
     ...(patch.archived === undefined
       ? {}

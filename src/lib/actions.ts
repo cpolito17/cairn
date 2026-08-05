@@ -24,7 +24,7 @@ import {
 } from './store';
 import { toast } from './toasts';
 import { blockedBy, lookupOf } from '../../shared/dependencies';
-import type { Board, Context, Task } from '../../shared/types';
+import type { Board, BoardAccent, Context, Task } from '../../shared/types';
 import { createBoardSpec } from './store';
 
 /**
@@ -81,13 +81,19 @@ export function addTask(draft: Omit<NewTask, 'position'>): void {
 }
 
 /** Create a board at the end of a context's list (§6.3). */
-export function addBoard(context: Context, name: string, description: string | null): void {
+export function addBoard(
+  context: Context,
+  name: string,
+  description: string | null,
+  accent: BoardAccent | null,
+): void {
   const store = useStore.getState();
   void store.mutate(
     createBoardSpec({
       context,
       name,
       description,
+      accent,
       position: endOfContext(store, context),
     }),
   );

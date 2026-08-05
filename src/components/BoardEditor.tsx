@@ -2,7 +2,7 @@
  * The board editor. PROJECT-SPEC.md §9.6, §6.3.
  *
  * One compact surface for three jobs — create, rename, edit description —
- * because they are the same two fields and splitting them into separate dialogs
+ * because they are the same fields and splitting them into separate dialogs
  * would mean a user who opened "rename" and then wanted to fix the description
  * has to cancel and start again.
  *
@@ -12,8 +12,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { addBoard } from '../lib/actions';
+import { BOARD_ACCENT_CHOICES, boardAccentColor } from '../lib/boardAccent';
 import { updateBoardSpec, useStore } from '../lib/store';
-import type { Board, Context } from '../../shared/types';
+import type { Board, BoardAccent, Context } from '../../shared/types';
 import { Button } from './ui/Button';
 import { Dialog, DialogHeader } from './ui/Dialog';
 import { Input, Textarea } from './ui/Input';
@@ -37,6 +38,7 @@ export function BoardEditor({
 }: BoardEditorProps) {
   const [name, setName] = useState(board?.name ?? '');
   const [description, setDescription] = useState(board?.description ?? '');
+  const [accent, setAccent] = useState<BoardAccent | null>(board?.accent ?? null);
   const [error, setError] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
@@ -47,6 +49,7 @@ export function BoardEditor({
     if (!open) return;
     setName(board?.name ?? '');
     setDescription(board?.description ?? '');
+    setAccent(board?.accent ?? null);
     setError(null);
     const target = focusField === 'description' ? descriptionRef.current : nameRef.current;
     // After the overlay's own focus call, which runs on the same tick.
@@ -68,10 +71,11 @@ export function BoardEditor({
         updateBoardSpec(board, {
           name: trimmed,
           description: trimmedDescription === '' ? null : trimmedDescription,
+          accent,
         }),
       );
     } else {
-      addBoard(context, trimmed, trimmedDescription === '' ? null : trimmedDescription);
+      addBoard(context, trimmed, trimmedDescription === '' ? null : trimmedDescription, accent);
     }
     onClose();
   }
@@ -110,6 +114,40 @@ export function BoardEditor({
             onChange={(event) => setDescription(event.target.value)}
           />
         </div>
+
+        <fieldset className="mt-5">
+          <legend className="mb-2 text-section text-text-secondary">Accent</legend>
+          <div className="grid grid-cols-6 gap-1 sm:grid-cols-11">
+            {BOARD_ACCENT_CHOICES.map((choice) => {
+              const selected = accent === choice.value;
+              return (
+                <button
+                  key={choice.value ?? 'theme'}
+                  type="button"
+                  aria-label={choice.label}
+                  aria-pressed={selected}
+                  title={choice.label}
+                  onClick={() => setAccent(choice.value)}
+                  className="pressable flex items-center justify-center rounded-control"
+                  style={{ width: 'var(--tap-target)', height: 'var(--tap-target)' }}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="block rounded-pill"
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      backgroundColor: boardAccentColor(choice.value),
+                      boxShadow: selected
+                        ? '0 0 0 2px var(--surface), 0 0 0 4px var(--accent)'
+                        : '0 0 0 1px var(--hairline)',
+                    }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
 
         <div className="mt-6 flex items-center justify-end gap-2">
           <Button

@@ -17,11 +17,13 @@ import {
   MAX_DURATION_MINUTES,
   MIN_DURATION_MINUTES,
   SCHEDULE_STEP_MINUTES,
+  isBoardAccent,
   isContext,
   isDifficulty,
   isValidDurationMinutes,
 } from '../shared/types';
 import type { Context, Difficulty, Settings, Task } from '../shared/types';
+import type { BoardAccent } from '../shared/types';
 
 /** Longest a task name may be (§6.4: "up to ~120 characters"). */
 export const MAX_TASK_NAME = 120;
@@ -94,6 +96,12 @@ export function nullableId(value: unknown, label: string): string | null {
 export function nullableText(value: unknown, label: string): string | null {
   if (value === null) return null;
   if (typeof value !== 'string') throw new BadRequest(`${label} must be a string or null`);
+  return value;
+}
+
+export function nullableBoardAccent(value: unknown): BoardAccent | null {
+  if (value === null) return null;
+  if (!isBoardAccent(value)) throw new BadRequest('accent must be a supported board accent or null');
   return value;
 }
 
