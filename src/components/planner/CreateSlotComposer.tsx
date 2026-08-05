@@ -201,7 +201,13 @@ export function CreateSlotComposer({
             options={KIND_OPTIONS}
             value={kind}
             onChange={selectKind}
-            className="w-auto shrink-0"
+            // `shrink-0` alone is not enough: each option inside `Segmented`
+            // is itself `min-w-0 flex-1`, so with no floor of its own this
+            // control collapses to whatever the header's `h2` (also flexible)
+            // leaves behind, and "Event" truncates first since it is the
+            // longer label. `min-w` is the same fix `Planner.tsx`'s own
+            // Week/Month/Year selector already uses for the same reason.
+            className="w-auto min-w-[9.5rem] shrink-0"
           />
         }
       />
