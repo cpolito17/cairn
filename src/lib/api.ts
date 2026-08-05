@@ -15,8 +15,15 @@
  * **A transport failure looks like an API failure.** An offline `fetch` rejects
  * with a `TypeError`; a 500 resolves. Callers should not have to care, so both
  * arrive as `ApiError` and the offline case gets `status: 0`.
+ *
+ * **Demo mode is switched here and nowhere else.** When this tab is running the
+ * demo (`lib/demo`), every function below answers from a world held in the
+ * browser instead of from the Worker. This is the only module in the app that
+ * calls `fetch`, which is what makes one branch per endpoint the whole of the
+ * integration — no screen, selector, or mutation spec knows the difference.
  */
 
+import * as demo from './demo';
 import type {
   AppState,
   Board,
@@ -146,6 +153,9 @@ async function callJson<T>(path: string, options: CallOptions = {}): Promise<T> 
 
 /** True when a live session exists. Its 401 is an answer, not a lost session. */
 export async function getSession(): Promise<boolean> {
+  // A live demo world *is* a live session: the app boots straight into it on a
+  // reload, without a round trip that would 401 and bounce back to login.
+  if (demo.isDemo()) return true;
   try {
     await call('/api/session', { ownsUnauthorized: true });
     return true;
@@ -166,6 +176,15 @@ export async function login(password: string): Promise<void> {
 
 /** Idempotent server-side; a failure here still drops the client to login. */
 export async function logout(): Promise<void> {
+  if (demo.isDemo()) {
+    demo.endDemo();
+    // The same path a lost session takes: the app clears the store, drops the
+    // toasts, and renders login. Without it the demo's entities would still be
+    // in a store whose `status` is already `ready`, and a real unlock in the
+    // same tab would short-circuit its load and show them.
+    fireSessionLost();
+    return;
+  }
   await call('/api/logout', { method: 'POST', ownsUnauthorized: true });
 }
 
@@ -173,6 +192,7 @@ export async function logout(): Promise<void> {
 
 /** The whole world in one round trip. The app's only read. */
 export function getState(): Promise<AppState> {
+  if (demo.isDemo()) return demo.getState();
   return callJson<AppState>('/api/state');
 }
 
@@ -196,14 +216,17 @@ export interface BoardPatch {
 }
 
 export function createBoard(draft: BoardDraft): Promise<Board> {
+  if (demo.isDemo()) return demo.createBoard(draft);
   return callJson<Board>('/api/boards', { method: 'POST', body: draft });
 }
 
 export function updateBoard(id: string, patch: BoardPatch): Promise<Board> {
+  if (demo.isDemo()) return demo.updateBoard(id, patch);
   return callJson<Board>(`/api/boards/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch });
 }
 
 export async function deleteBoard(id: string): Promise<void> {
+  if (demo.isDemo()) return demo.deleteBoard(id);
   await call(`/api/boards/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
@@ -250,14 +273,17 @@ export interface TaskPatch {
 }
 
 export function createTask(draft: TaskDraft): Promise<Task> {
+  if (demo.isDemo()) return demo.createTask(draft);
   return callJson<Task>('/api/tasks', { method: 'POST', body: draft });
 }
 
 export function updateTask(id: string, patch: TaskPatch): Promise<Task> {
+  if (demo.isDemo()) return demo.updateTask(id, patch);
   return callJson<Task>(`/api/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch });
 }
 
 export async function deleteTask(id: string): Promise<void> {
+  if (demo.isDemo()) return demo.deleteTask(id);
   await call(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
@@ -271,14 +297,17 @@ export type EventPatch = Partial<Omit<EventDraft, 'context'>>;
 // false positive (it looks like an analytics beacon), and it was getting
 // dropped client-side before ever reaching the server.
 export function createEvent(draft: EventDraft): Promise<PlannerEvent> {
+  if (demo.isDemo()) return demo.createEvent(draft);
   return callJson<PlannerEvent>('/api/planner-events', { method: 'POST', body: draft });
 }
 
 export function updateEvent(id: string, patch: EventPatch): Promise<PlannerEvent> {
+  if (demo.isDemo()) return demo.updateEvent(id, patch);
   return callJson<PlannerEvent>(`/api/planner-events/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch });
 }
 
 export async function deleteEvent(id: string): Promise<void> {
+  if (demo.isDemo()) return demo.deleteEvent(id);
   await call(`/api/planner-events/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
@@ -291,5 +320,6 @@ export async function deleteEvent(id: string): Promise<void> {
  * separate fetch would be a round trip for data the client has (V2 §3.2).
  */
 export function putSettings(settings: Settings): Promise<Settings> {
+  if (demo.isDemo()) return demo.putSettings(settings);
   return callJson<Settings>('/api/settings', { method: 'PUT', body: settings });
 }

@@ -33,6 +33,7 @@
 import { CaretLeft, CloudSlash, Gear } from '@phosphor-icons/react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState, type ReactNode } from 'react';
+import { isDemo } from '../lib/demo';
 import { navigate, useRoute, VIEW_ROOTS, viewOf, type View } from '../lib/router';
 import { useStore } from '../lib/store';
 import { SettingsSheet } from './SettingsSheet';
@@ -123,6 +124,11 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
               className="block truncate text-text-secondary"
               style={{ fontSize: '12px', fontWeight: 500, lineHeight: 1.35 }}
             >
+              {/* In the demo the label says so, in the one place that already
+                  names the mode the user is in. A visitor who cannot tell they
+                  are in a sandbox is a visitor who thinks they broke something
+                  real. */}
+              {isDemo() ? 'Demo · ' : ''}
               {context === 'personal' ? 'Personal' : 'Work'}
             </span>
           </div>

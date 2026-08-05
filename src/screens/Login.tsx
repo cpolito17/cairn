@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, login } from '../lib/api';
+import { startDemo } from '../lib/demo';
 import { OUT_CURVE, prefersReducedMotion } from '../lib/motion';
 import { takeRedirect } from '../lib/redirect';
 
@@ -197,8 +198,49 @@ export function Login() {
             {submitting ? <Spinner /> : 'Unlock'}
           </button>
         </form>
+
+        <DemoButton disabled={submitting} />
       </div>
     </main>
+  );
+}
+
+/**
+ * The way in without a password.
+ *
+ * Deliberately the quietest thing on the screen: a pill of the same shape and
+ * height as Unlock, filled with `--surface-2` and lettered in
+ * `--text-secondary`. §8.4 allows exactly one filled primary per view and that
+ * one is Unlock — this reads as available without competing with it, and it
+ * introduces no colour, since §8.2 gives all interactive duty to the accent and
+ * this surface is not asking for any.
+ *
+ * Entering the demo seeds a world into this tab and then *navigates* rather than
+ * flipping state in place: a full boot is the same path a real unlock takes, so
+ * the store, the session probe, and the theme all start from the same place they
+ * would otherwise.
+ */
+function DemoButton({ disabled }: { disabled: boolean }) {
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          startDemo();
+          window.location.assign('/');
+        }}
+        className="pressable flex w-full items-center justify-center rounded-pill bg-surface-2
+                   text-text-secondary disabled:pointer-events-none disabled:opacity-60"
+        style={{ height: 'var(--button-height)', fontWeight: 600 }}
+      >
+        Explore the demo
+      </button>
+
+      <p className="mt-2 text-center text-meta text-text-tertiary">
+        A sample world, built in your browser. Nothing is saved.
+      </p>
+    </div>
   );
 }
 
