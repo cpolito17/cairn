@@ -136,9 +136,9 @@ export function Login() {
       <div className="w-full max-w-[22rem]">
         <h1
           className="mb-8 text-center text-hero text-text"
-          style={{ fontWeight: 600, letterSpacing: '-0.03em' }}
+          style={{ fontFamily: 'var(--font-wordmark)', fontWeight: 400, letterSpacing: '-0.01em' }}
         >
-          Cairn
+          tasks
         </h1>
 
         <form onSubmit={onSubmit} noValidate>

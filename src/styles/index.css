@@ -11,6 +11,16 @@
   font-display: swap;
 }
 
+/* Self-hosted Archivo Black, for the wordmark alone — see --font-wordmark.
+   OFL-licensed; public/fonts/ArchivoBlack-LICENSE.txt carries the text. */
+@font-face {
+  font-family: 'Archivo Black';
+  src: url('/fonts/ArchivoBlack-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* Tailwind v4 theme. `inline` emits the var() references straight into the
    utilities rather than snapshotting their values, so flipping data-theme
    re-resolves every utility at runtime. */

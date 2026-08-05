@@ -107,9 +107,9 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
               ) : (
                 <span
                   className="block truncate text-board-title text-text"
-                  style={{ letterSpacing: '-0.02em' }}
+                  style={{ fontFamily: 'var(--font-wordmark)', fontWeight: 400, letterSpacing: '-0.01em' }}
                 >
-                  Cairn
+                  tasks
                 </span>
               )}
             </div>
