@@ -411,8 +411,12 @@ function UnscheduledRow({
               Blocked
             </Chip>
           )}
+          {/* `wrap`: a task name here is unbounded (up to 120 characters,
+              §6.4) and this aside is narrow — left at the default `shrink-0`
+              this chip refused to shrink and pushed the whole list into
+              horizontal scroll instead of wrapping onto its own line. */}
           {waiting && (
-            <Chip tone="tertiary" icon={<LinkSimple size={16} />}>
+            <Chip tone="tertiary" icon={<LinkSimple size={16} />} wrap>
               Waiting on {waiting.name}
             </Chip>
           )}

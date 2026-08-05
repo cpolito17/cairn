@@ -135,7 +135,6 @@ export function Blockers() {
 }
 
 function DependencyBoard({ model, onOpen }: { model: BoardModel; onOpen(task: Task): void }) {
-  const geometry = useMemo(() => geometryOf(model.layout), [model.layout]);
   const lookup = useMemo(() => lookupOf(model.tasks), [model.tasks]);
   const byId = useMemo(
     () => new Map(model.tasks.map((task) => [task.id, task])),
@@ -144,6 +143,32 @@ function DependencyBoard({ model, onOpen }: { model: BoardModel; onOpen(task: Ta
   const scroll = useRef<HTMLDivElement>(null);
   const [now] = useState(() => Date.now());
 
+  // Nodes render at NODE_HEIGHT first — a reasonable guess, and the one every
+  // node used to be pinned to outright — then this measures what they
+  // actually came out at once a name has wrapped past it, and lays out again
+  // from the real numbers. `useLayoutEffect` is what keeps the guess from
+  // ever painting: it runs, and the `setNodeHeights` it triggers commits,
+  // before the browser shows anything. Re-fires whenever `model.layout`
+  // itself is a new object — a new tree shape or an edited name, the two
+  // things that can change what a node measures at.
+  const nodeRefs = useRef(new Map<string, HTMLDivElement>());
+  const [nodeHeights, setNodeHeights] = useState<Map<string, number> | null>(null);
+  useLayoutEffect(() => {
+    const measured = new Map<string, number>();
+    for (const tree of model.layout.trees) {
+      for (const node of tree.nodes) {
+        const el = nodeRefs.current.get(node.task.id);
+        if (el) measured.set(node.task.id, el.getBoundingClientRect().height);
+      }
+    }
+    setNodeHeights(measured);
+  }, [model.layout]);
+
+  const geometry = useMemo(
+    () => geometryOf(model.layout, nodeHeights),
+    [model.layout, nodeHeights],
+  );
+
   useAutoScrollOnMount(scroll, geometry.leftmostIncompleteX);
 
   return (
@@ -151,21 +176,28 @@ function DependencyBoard({ model, onOpen }: { model: BoardModel; onOpen(task: Ta
       className="blockers-bleed overflow-hidden border-y border-hairline"
       aria-labelledby={`blocker-board-${model.board.id}`}
     >
+      {/* The title, above the scrolling row rather than sharing its narrow
+          sticky column — a board name is not something a 220px sidebar was
+          ever going to hold without cutting it off. */}
+      <div className="px-gutter py-4">
+        <h2
+          id={`blocker-board-${model.board.id}`}
+          className="text-row text-text"
+          style={{ fontWeight: 600, overflowWrap: 'anywhere' }}
+        >
+          {model.board.name}
+        </h2>
+        <p className="mt-1 text-meta text-text-secondary">{model.progress.percent}% complete</p>
+      </div>
+
       <div ref={scroll} className="blockers-board-scroll">
         <div className="flex min-w-max items-stretch" style={{ minHeight: geometry.height }}>
-          <aside className="blockers-sidebar z-20 shrink-0 p-4">
-            <h2
-              id={`blocker-board-${model.board.id}`}
-              className="truncate text-row text-text"
-              style={{ fontWeight: 600 }}
-            >
-              {model.board.name}
-            </h2>
-            <p className="mt-1 text-meta text-text-secondary">{model.progress.percent}% complete</p>
-
-            {model.layout.standalone.length > 0 && (
+          {/* Sticky only while there is something to pin — an empty 220px
+              column has nothing left to say once the title moved above. */}
+          {model.layout.standalone.length > 0 && (
+            <aside className="blockers-sidebar z-20 shrink-0 p-4">
               <div
-                className="mt-5 overflow-y-auto rounded-control bg-surface-2 p-1"
+                className="overflow-y-auto rounded-control bg-surface-2 p-1"
                 style={{ maxHeight: '240px', overscrollBehavior: 'contain' }}
               >
                 <p className="px-2 pb-1 pt-2 text-meta text-text-tertiary">Standalone</p>
@@ -173,8 +205,8 @@ function DependencyBoard({ model, onOpen }: { model: BoardModel; onOpen(task: Ta
                   <CompactTask key={task.id} task={task} onOpen={onOpen} />
                 ))}
               </div>
-            )}
-          </aside>
+            </aside>
+          )}
 
           <div
             className="relative shrink-0"
@@ -212,11 +244,20 @@ function DependencyBoard({ model, onOpen }: { model: BoardModel; onOpen(task: Ta
             {geometry.nodes.map(({ node, x, y }) => (
               <div
                 key={node.task.id}
+                ref={(el) => {
+                  if (el) nodeRefs.current.set(node.task.id, el);
+                  else nodeRefs.current.delete(node.task.id);
+                }}
                 data-blocker-node={node.task.id}
                 className="absolute left-0 top-0"
                 style={{
                   width: NODE_WIDTH,
-                  height: NODE_HEIGHT,
+                  // A floor, not a fixed height — §7's line-clamp used to cut
+                  // a long name off at two lines to stay inside NODE_HEIGHT;
+                  // now the box grows for it instead, and the row spacing
+                  // above already left it the room (`geometryOf`, measured
+                  // against exactly this element).
+                  minHeight: NODE_HEIGHT,
                   transform: `translate3d(${x}px, ${y}px, 0)`,
                 }}
               >
@@ -257,7 +298,7 @@ function BlockerNodeCard({
 
   return (
     <div
-      className="blocker-node theme-eased flex h-full items-stretch overflow-hidden rounded-control bg-surface"
+      className="blocker-node theme-eased flex h-full items-stretch rounded-control bg-surface"
       data-state={done ? 'completed' : gated ? 'gated' : 'open'}
       style={{
         border: done
@@ -278,7 +319,7 @@ function BlockerNodeCard({
         aria-label={`Edit ${task.name}`}
       >
         <span
-          className="line-clamp-2 text-row"
+          className="text-row"
           style={{
             color: done
               ? 'var(--text-tertiary)'
@@ -333,7 +374,16 @@ function StandaloneBoard({ model, onOpen }: { model: BoardModel; onOpen(task: Ta
         aria-controls={regionId}
         onClick={() => setExpanded((was) => !was)}
       >
-        <span className="min-w-0 flex-1 truncate text-row text-text">{model.board.name}</span>
+        {/* No `truncate` — a board name is not fixed-length vocabulary like
+            the count beside it, and this row is the only place this board's
+            name appears at all when it has no dependency tree of its own.
+            `py-2` is what a wrapped name needs from a row that otherwise only
+            promises `min-height`: without it, two lines butt against the
+            row's edges instead of sitting inside the same breathing room a
+            single line already gets from centring. */}
+        <span className="min-w-0 flex-1 py-2 text-row text-text" style={{ overflowWrap: 'anywhere' }}>
+          {model.board.name}
+        </span>
         <span className="shrink-0 text-meta text-text-secondary">
           {count} {count === 1 ? 'task' : 'tasks'} · no dependencies
         </span>
@@ -375,7 +425,7 @@ function CompactTask({ task, onOpen }: { task: Task; onOpen(task: Task): void })
       <button
         type="button"
         onClick={() => onOpen(task)}
-        className="pressable hoverable min-w-0 flex-1 truncate rounded-control pr-2 text-left text-meta"
+        className="pressable hoverable min-w-0 flex-1 rounded-control pr-2 text-left text-meta"
         style={{
           color: done
             ? 'var(--text-tertiary)'
@@ -383,6 +433,7 @@ function CompactTask({ task, onOpen }: { task: Task; onOpen(task: Task): void })
               ? 'var(--text-secondary)'
               : 'var(--text)',
           textDecoration: done ? 'line-through' : undefined,
+          overflowWrap: 'anywhere',
         }}
       >
         {task.name}
@@ -443,8 +494,24 @@ function TaskCheckbox({
   );
 }
 
-function geometryOf(layout: BlockerLayout): Geometry {
-  const rowStride = NODE_HEIGHT + ROW_GAP;
+/**
+ * `heights`, when present, is a real measurement of every node currently in
+ * the DOM (`DependencyBoard`'s `useLayoutEffect`) — null on the first render
+ * of a tree that has never been measured yet, before which every node is
+ * assumed to be `NODE_HEIGHT`, same as when this had no such thing as a tall
+ * node at all.
+ *
+ * The row math changes from "every row is `NODE_HEIGHT + ROW_GAP` tall" to a
+ * per-node placement that mirrors `layoutTree`'s own tidy-tree recursion
+ * (`shared/blockers.ts`) one level down, in pixels instead of abstract row
+ * units: a leaf stacks under the one before it using its *own* height, and a
+ * parent centres over the vertical midpoint of its first and last dependant,
+ * exactly as `y` already did. Fed uniform heights, this reduces to the same
+ * numbers the old `y * rowStride` arithmetic produced — the generalisation is
+ * exact, not an approximation, so nothing shifts for a tree with no wrapped
+ * names in it.
+ */
+function geometryOf(layout: BlockerLayout, heights: Map<string, number> | null): Geometry {
   const columnStride = NODE_WIDTH + COLUMN_GAP;
   const maxDepth = layout.trees.reduce((max, tree) => Math.max(max, tree.maxDepth), 0);
   const width =
@@ -453,28 +520,77 @@ function geometryOf(layout: BlockerLayout): Geometry {
   const edges: PositionedEdge[] = [];
   let treeTop = TREE_PADDING_Y;
 
+  const heightOf = (taskId: string): number => Math.max(NODE_HEIGHT, heights?.get(taskId) ?? NODE_HEIGHT);
+
   for (const tree of layout.trees) {
-    const positioned = new Map<string, PositionedNode>();
+    const byTaskId = new Map(tree.nodes.map((node) => [node.task.id, node]));
+    // Relative to this tree's own top starting at 0 — the running `treeTop`
+    // is added back in once the whole tree is placed, after the shift below
+    // is known. Computing it that way, rather than seeding leaves straight
+    // from `treeTop`, is what makes the shift a single subtraction instead of
+    // a second walk over every node.
+    const relativeTop = new Map<string, number>();
+
+    // Leaves stack in the tidy-tree's own top-to-bottom order. `node.y` from
+    // `shared/blockers.ts` already carries it — each leaf's sequential index
+    // in that walk — so sorting by it and then stacking by real height keeps
+    // the visual order `layoutTree` intended instead of whatever order this
+    // file's own flat `tree.nodes` array happens to list them in.
+    const leaves = tree.nodes
+      .filter((node) => node.dependentIds.length === 0)
+      .sort((a, b) => a.y - b.y);
+    let cursor = 0;
+    for (const leaf of leaves) {
+      relativeTop.set(leaf.task.id, cursor);
+      cursor += heightOf(leaf.task.id) + ROW_GAP;
+    }
+
+    // Every parent centres over the vertical midpoint of its first and last
+    // dependant, same as the row-index math already did — post-order, since
+    // the formula reads its children's placed positions, which the leaf pass
+    // above already seeded.
+    function place(taskId: string): number {
+      const existing = relativeTop.get(taskId);
+      if (existing !== undefined) return existing;
+      const children = byTaskId.get(taskId)?.dependentIds ?? [];
+      const firstMid = place(children[0]) + heightOf(children[0]) / 2;
+      const lastMid = place(children[children.length - 1]) + heightOf(children[children.length - 1]) / 2;
+      const placed = (firstMid + lastMid) / 2 - heightOf(taskId) / 2;
+      relativeTop.set(taskId, placed);
+      return placed;
+    }
+    for (const node of tree.nodes) place(node.task.id);
+
+    // A short chain topped by a node several wrapped lines tall centres that
+    // tall node over its one short child and can come out above where the
+    // tree is meant to start — there is no leaf above it to have claimed that
+    // space in the first place. Shifting every node in the tree down by
+    // however far negative the least of them went keeps the centring intact
+    // (nothing here is clamped independently) while guaranteeing the whole
+    // tree lands inside its own bounds.
+    const minRelativeTop = Math.min(
+      ...tree.nodes.map((node) => relativeTop.get(node.task.id) as number),
+    );
+    const shift = treeTop - minRelativeTop;
+    const pixelTop = (taskId: string): number => (relativeTop.get(taskId) as number) + shift;
+
     for (const node of tree.nodes) {
-      const entry = {
+      nodes.push({
         node,
         x: TREE_PADDING_X + node.depth * columnStride,
-        y: treeTop + node.y * rowStride,
-      };
-      nodes.push(entry);
-      positioned.set(node.task.id, entry);
+        y: pixelTop(node.task.id),
+      });
     }
 
     for (const child of tree.nodes) {
       if (child.parentId === null) continue;
-      const parent = positioned.get(child.parentId);
-      const dependent = positioned.get(child.task.id);
-      if (!parent || !dependent) continue;
+      const parent = byTaskId.get(child.parentId);
+      if (!parent) continue;
 
-      const startX = parent.x + NODE_WIDTH;
-      const startY = parent.y + NODE_HEIGHT / 2;
-      const endX = dependent.x;
-      const endY = dependent.y + NODE_HEIGHT / 2;
+      const startX = TREE_PADDING_X + parent.depth * columnStride + NODE_WIDTH;
+      const startY = pixelTop(child.parentId) + heightOf(child.parentId) / 2;
+      const endX = TREE_PADDING_X + child.depth * columnStride;
+      const endY = pixelTop(child.task.id) + heightOf(child.task.id) / 2;
       const controlX = startX + (endX - startX) / 2;
       edges.push({
         id: `${child.parentId}:${child.task.id}`,
@@ -484,8 +600,15 @@ function geometryOf(layout: BlockerLayout): Geometry {
       });
     }
 
-    const treeHeight = NODE_HEIGHT + (tree.leafRows - 1) * rowStride;
-    treeTop += treeHeight + TREE_GAP;
+    // The bottommost edge any node in this tree reaches — a tall node near
+    // the end can extend past where the last leaf alone would have put it,
+    // and the old formula (leaf count times a fixed row height) had no way to
+    // know that because every row was the same height by definition.
+    const treeBottom = tree.nodes.reduce(
+      (max, node) => Math.max(max, pixelTop(node.task.id) + heightOf(node.task.id)),
+      treeTop,
+    );
+    treeTop = treeBottom + TREE_GAP;
   }
 
   const height = Math.max(
