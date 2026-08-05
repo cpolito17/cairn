@@ -14,13 +14,14 @@
 import type { AppState } from '../../shared/types';
 import { requireSession } from '../auth';
 import type { Env } from '../db';
-import { enableForeignKeys, selectBoards, selectSettings, selectTasks } from '../db';
+import { enableForeignKeys, selectBoards, selectEvents, selectSettings, selectTasks } from '../db';
 import { apiError, json } from '../http';
 import { BadRequest } from '../validate';
 import { handleAuth } from './auth';
 import { handleBoards } from './boards';
 import { handleSettings } from './settings';
 import { handleTasks } from './tasks';
+import { handleEvents } from './events';
 
 export { apiError, json } from '../http';
 
@@ -32,12 +33,13 @@ async function state(env: Env): Promise<Response> {
   // load stays one round trip (§2), and `selectSettings` answers with the
   // defaults when there is no row or the stored document is malformed, so this
   // read has no failure mode the client has to handle.
-  const [boards, tasks, settings] = await Promise.all([
+  const [boards, tasks, events, settings] = await Promise.all([
     selectBoards(env.DB),
     selectTasks(env.DB),
+    selectEvents(env.DB),
     selectSettings(env.DB),
   ]);
-  const body: AppState = { boards, tasks, settings };
+  const body: AppState = { boards, tasks, events, settings };
   return json(body);
 }
 
@@ -68,6 +70,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     const response =
       handleBoards(request, env, pathname) ??
       handleTasks(request, env, pathname) ??
+      handleEvents(request, env, pathname) ??
       handleSettings(request, env, pathname);
     if (response) return await response;
 

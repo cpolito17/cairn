@@ -37,7 +37,7 @@ import {
   type TaskGroup,
 } from '../../shared/planner';
 import { DEFAULT_SETTINGS } from '../../shared/settings';
-import type { Board, BoardAccent, Context, PlannerSort, Settings, Task } from '../../shared/types';
+import type { Board, BoardAccent, Context, PlannerEvent, PlannerSort, Settings, Task } from '../../shared/types';
 import { upNext } from '../../shared/upnext';
 import * as api from './api';
 import { ApiError } from './api';
@@ -50,6 +50,7 @@ import { toast } from './toasts';
 export interface Data {
   boards: Record<string, Board>;
   tasks: Record<string, Task>;
+  events: Record<string, PlannerEvent>;
   /**
    * The one settings document (V2 §3.2). Not id-keyed like the other two
    * because there is exactly one of it — but it lives in `Data` all the same,
@@ -74,7 +75,7 @@ export type Status = 'loading' | 'ready' | 'error';
 export type LoadFailure = 'offline' | 'server';
 
 export interface EntityRef {
-  kind: 'board' | 'task' | 'settings';
+  kind: 'board' | 'task' | 'event' | 'settings';
   /** Ignored for `settings`, which is a single document. */
   id: string;
 }
@@ -90,6 +91,7 @@ export const SETTINGS_REF: EntityRef = { kind: 'settings', id: 'settings' };
 export interface Captured {
   boards: Record<string, Board | undefined>;
   tasks: Record<string, Task | undefined>;
+  events: Record<string, PlannerEvent | undefined>;
   /** Present only when the mutation touched settings. */
   settings?: Settings;
 }
@@ -123,6 +125,7 @@ export interface MutationSpec<R = unknown> {
 export function restoreCaptured(data: Data, captured: Captured): Data {
   const boards = { ...data.boards };
   const tasks = { ...data.tasks };
+  const events = { ...data.events };
   const settings = captured.settings ?? data.settings;
 
   for (const [id, board] of Object.entries(captured.boards)) {
@@ -133,20 +136,25 @@ export function restoreCaptured(data: Data, captured: Captured): Data {
     if (task === undefined) delete tasks[id];
     else tasks[id] = task;
   }
+  for (const [id, event] of Object.entries(captured.events)) {
+    if (event === undefined) delete events[id];
+    else events[id] = event;
+  }
 
-  return { boards, tasks, settings };
+  return { boards, tasks, events, settings };
 }
 
 /** The entity slice of the store, so a spec never sees the rest of it. */
 function dataOf(state: Data): Data {
-  return { boards: state.boards, tasks: state.tasks, settings: state.settings };
+  return { boards: state.boards, tasks: state.tasks, events: state.events, settings: state.settings };
 }
 
 function capture(data: Data, refs: EntityRef[]): Captured {
-  const captured: Captured = { boards: {}, tasks: {} };
+  const captured: Captured = { boards: {}, tasks: {}, events: {} };
   for (const ref of refs) {
     if (ref.kind === 'board') captured.boards[ref.id] = data.boards[ref.id];
     else if (ref.kind === 'task') captured.tasks[ref.id] = data.tasks[ref.id];
+    else if (ref.kind === 'event') captured.events[ref.id] = data.events[ref.id];
     else captured.settings = data.settings;
   }
   return captured;
@@ -221,6 +229,7 @@ export const useStore = create<AppStore>((set, get) => ({
   failure: null,
   boards: {},
   tasks: {},
+  events: {},
   // The defaults until the bootstrap read answers. The Worker sends the same
   // constant for a database with no settings row, so this is not a placeholder
   // that gets corrected — for a fresh install it is the value.
@@ -236,12 +245,13 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ status: 'loading', failure: null });
     inFlightLoad = api
       .getState()
-      .then(({ boards, tasks, settings }) => {
+      .then(({ boards, tasks, events, settings }) => {
         set({
           status: 'ready',
           failure: null,
           boards: Object.fromEntries(boards.map((board) => [board.id, board])),
           tasks: Object.fromEntries(tasks.map((task) => [task.id, task])),
+          events: Object.fromEntries((events ?? []).map((event) => [event.id, event])),
           settings,
         });
       })
@@ -314,7 +324,7 @@ export const useStore = create<AppStore>((set, get) => ({
 
   reset() {
     inFlightLoad = null;
-    set({ status: 'loading', failure: null, boards: {}, tasks: {}, settings: DEFAULT_SETTINGS });
+    set({ status: 'loading', failure: null, boards: {}, tasks: {}, events: {}, settings: DEFAULT_SETTINGS });
   },
 }));
 
@@ -350,12 +360,14 @@ export function subscribeToConnectivity(): () => void {
 function memoized<Arg, R>(compute: (data: Data, arg: Arg) => R): (data: Data, arg: Arg) => R {
   let lastBoards: Data['boards'] | null = null;
   let lastTasks: Data['tasks'] | null = null;
+  let lastEvents: Data['events'] | null = null;
   let cache = new Map<Arg, R>();
 
   return (data, arg) => {
-    if (data.boards !== lastBoards || data.tasks !== lastTasks) {
+    if (data.boards !== lastBoards || data.tasks !== lastTasks || data.events !== lastEvents) {
       lastBoards = data.boards;
       lastTasks = data.tasks;
+      lastEvents = data.events;
       cache = new Map();
     }
     if (cache.has(arg)) return cache.get(arg) as R;
@@ -514,7 +526,13 @@ export const selectSchedule = memoized((data: Data, key: string): DayLayout[] =>
   const start = Number(firstDay);
   const days = Array.from({ length: Number(dayCount) }, (_, index) => addDays(start, index));
   const mine = context as Context;
-  return layoutDays(days, tasksInContext(data, mine), tasksInContext(data, otherContext(mine)));
+  return layoutDays(
+    days,
+    tasksInContext(data, mine),
+    tasksInContext(data, otherContext(mine)),
+    Object.values(data.events).filter((event) => event.context === mine),
+    Object.values(data.events).filter((event) => event.context === otherContext(mine)),
+  );
 });
 
 /** The context whose blocks are ghosts while `context` is on screen. */
@@ -535,6 +553,8 @@ export const selectMonth = memoized((data: Data, key: string): MonthDay[] => {
     Number(monthStart),
     tasksInContext(data, mine),
     tasksInContext(data, otherContext(mine)),
+    Object.values(data.events).filter((event) => event.context === mine),
+    Object.values(data.events).filter((event) => event.context === otherContext(mine)),
   );
 });
 
@@ -561,6 +581,9 @@ export const useArchivedBoards = (context: Context): Board[] =>
 export const useBoard = (id: string): Board | undefined => useStore((state) => state.boards[id]);
 
 export const useTask = (id: string): Task | undefined => useStore((state) => state.tasks[id]);
+
+export const useEvents = (context: Context): PlannerEvent[] =>
+  useStore((state) => Object.values(state.events).filter((event) => event.context === context));
 
 export const useActiveTasks = (boardId: string): Task[] =>
   useStore((state) => selectActiveTasks(state, boardId));
@@ -635,6 +658,16 @@ function withTask(data: Data, task: Task): Data {
   return { ...data, tasks: { ...data.tasks, [task.id]: task } };
 }
 
+function withEvent(data: Data, event: PlannerEvent): Data {
+  return { ...data, events: { ...data.events, [event.id]: event } };
+}
+
+function withoutEvent(data: Data, id: string): Data {
+  const events = { ...data.events };
+  delete events[id];
+  return { ...data, events };
+}
+
 function withoutBoard(data: Data, id: string): Data {
   const boards = { ...data.boards };
   delete boards[id];
@@ -685,6 +718,14 @@ function replaceTaskId(data: Data, optimisticId: string, task: Task): Data {
   delete tasks[optimisticId];
   tasks[task.id] = task;
   return { ...data, tasks };
+}
+
+function replaceEventId(data: Data, optimisticId: string, event: PlannerEvent): Data {
+  if (event.id === optimisticId) return withEvent(data, event);
+  const events = { ...data.events };
+  delete events[optimisticId];
+  events[event.id] = event;
+  return { ...data, events };
 }
 
 /* --- mutation specs -------------------------------------------------------- */
@@ -946,6 +987,35 @@ export function deleteTaskSpec(task: Task): MutationSpec<void> {
     revert: restoreCaptured,
     request: () => api.deleteTask(task.id),
     reconcile: (data) => data,
+  };
+}
+
+export function createEventSpec(draft: api.EventDraft): MutationSpec<PlannerEvent> {
+  const now = Date.now();
+  const optimistic: PlannerEvent = { ...draft, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
+  return {
+    onError: `Couldn't create "${draft.name}".`,
+    touches: [{ kind: 'event', id: optimistic.id }],
+    apply: (data) => withEvent(data, optimistic), revert: restoreCaptured,
+    request: () => api.createEvent(draft),
+    reconcile: (data, saved) => replaceEventId(data, optimistic.id, saved),
+  };
+}
+
+export function updateEventSpec(event: PlannerEvent, patch: api.EventPatch): MutationSpec<PlannerEvent> {
+  const optimistic = { ...event, ...patch, updatedAt: Date.now() };
+  return {
+    onError: `Couldn't save "${event.name}".`, touches: [{ kind: 'event', id: event.id }],
+    apply: (data) => withEvent(data, optimistic), revert: restoreCaptured,
+    request: () => api.updateEvent(event.id, patch), reconcile: (data, saved) => withEvent(data, saved),
+  };
+}
+
+export function deleteEventSpec(event: PlannerEvent): MutationSpec<void> {
+  return {
+    onError: `Couldn't delete "${event.name}".`, touches: [{ kind: 'event', id: event.id }],
+    apply: (data) => withoutEvent(data, event.id), revert: restoreCaptured,
+    request: () => api.deleteEvent(event.id), reconcile: (data) => data,
   };
 }
 

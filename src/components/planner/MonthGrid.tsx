@@ -201,7 +201,7 @@ function DayCell({
  * it occupied is still the record of the day.
  */
 function Entry({ entry, task }: { entry: MonthEntry; task: Task | undefined }) {
-  if (entry.ghost || task === undefined) {
+  if (entry.ghost) {
     return (
       <span
         aria-hidden="true"
@@ -210,6 +210,15 @@ function Entry({ entry, task }: { entry: MonthEntry; task: Task | undefined }) {
       />
     );
   }
+
+  if (entry.eventName) {
+    return <span className="flex min-w-0 items-baseline gap-1 px-1 text-meta">
+      <span className="shrink-0 text-text-tertiary">{formatCompactTime(entry.startMs)}</span>
+      <span className="truncate text-text-secondary">{entry.eventName}</span>
+    </span>;
+  }
+
+  if (task === undefined) return null;
 
   const done = task.completedAt !== null;
 

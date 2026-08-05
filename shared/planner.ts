@@ -24,6 +24,8 @@ import {
   startOfLocalDay,
 } from './schedule';
 import type { PlannerSort, Settings, Task } from './types';
+import type { PlannerEvent } from './types';
+import { eventOccurrences } from './events';
 import { dueMoment } from './upnext';
 
 /* --- the calendar ---------------------------------------------------------- */
@@ -226,6 +228,8 @@ export function groupByBoard(
 export interface PlacedBlock {
   /** The task's id for a real block; absent on a ghost. */
   taskId: string | null;
+  /** A current-context calendar event; mutually exclusive with taskId. */
+  eventId?: string;
   ghost: boolean;
   startMs: number;
   minutes: number;
@@ -262,6 +266,8 @@ export function layoutDay(
   dayStart: number,
   own: readonly Task[],
   other: readonly Task[],
+  ownEvents: readonly PlannerEvent[] = [],
+  otherEvents: readonly PlannerEvent[] = [],
 ): DayLayout {
   // `scheduledOn` has already established that every one of these has a block,
   // so the nulls `blockOf` is typed to allow cannot occur here.
@@ -273,10 +279,20 @@ export function layoutDay(
     .filter((block) => block !== null)
     .map((block) => ({ ...block, id: `${GHOST_PREFIX}${block.id}` }));
 
-  const blocks = packLanes([...ownBlocks, ...ghostBlocks]).map(({ block, lane, lanes }) => {
+  const eventBlocks = eventOccurrences(ownEvents, [dayStart]).map(({ event, startMs }) => ({
+    id: `event:${event.id}`, startMs, minutes: event.durationMinutes,
+  }));
+  const ghostEventBlocks = eventOccurrences(otherEvents, [dayStart]).map(({ event, startMs }) => ({
+    id: `${GHOST_PREFIX}event:${event.id}`, startMs, minutes: event.durationMinutes,
+  }));
+
+  const blocks = packLanes([...ownBlocks, ...ghostBlocks, ...eventBlocks, ...ghostEventBlocks]).map(({ block, lane, lanes }) => {
     const ghost = block.id.startsWith(GHOST_PREFIX);
+    const rawId = ghost ? block.id.slice(GHOST_PREFIX.length) : block.id;
+    const event = rawId.startsWith('event:');
     return {
-      taskId: ghost ? null : block.id,
+      taskId: ghost || event ? null : block.id,
+      ...(ghost || !event ? {} : { eventId: rawId.slice('event:'.length) }),
       ghost,
       startMs: block.startMs,
       minutes: block.minutes,
@@ -293,8 +309,10 @@ export function layoutDays(
   days: readonly number[],
   own: readonly Task[],
   other: readonly Task[],
+  ownEvents: readonly PlannerEvent[] = [],
+  otherEvents: readonly PlannerEvent[] = [],
 ): DayLayout[] {
-  return days.map((dayStart) => layoutDay(dayStart, own, other));
+  return days.map((dayStart) => layoutDay(dayStart, own, other, ownEvents, otherEvents));
 }
 
 /* --- the month grid -------------------------------------------------------- */
@@ -311,6 +329,7 @@ export function layoutDays(
 export interface MonthEntry {
   /** The task's id for the current context's block; absent on a ghost. */
   taskId: string | null;
+  eventName?: string;
   ghost: boolean;
   startMs: number;
 }
@@ -335,6 +354,8 @@ export function layoutMonth(
   monthAnchor: number,
   own: readonly Task[],
   other: readonly Task[],
+  ownEvents: readonly PlannerEvent[] = [],
+  otherEvents: readonly PlannerEvent[] = [],
 ): MonthDay[] {
   const month = startOfMonth(monthAnchor);
 
@@ -342,23 +363,20 @@ export function layoutMonth(
     // The id every entry sorts by, including the ghosts'. It is a sort key and
     // nothing else: it never reaches `MonthEntry`, so a ghost stays anonymous.
     const sorted = [
-      ...scheduledOn(dayStart, own).map((task) => ({ task, ghost: false })),
-      ...scheduledOn(dayStart, other).map((task) => ({ task, ghost: true })),
-    ].sort(
-      (a, b) =>
-        (a.task.scheduledAt as number) - (b.task.scheduledAt as number) ||
-        Number(a.ghost) - Number(b.ghost) ||
-        byId(a.task, b.task),
-    );
+      ...scheduledOn(dayStart, own).map((task) => ({ id: task.id, taskId: task.id, startMs: task.scheduledAt as number, ghost: false })),
+      ...scheduledOn(dayStart, other).map((task) => ({ id: task.id, taskId: null, startMs: task.scheduledAt as number, ghost: true })),
+      ...eventOccurrences(ownEvents, [dayStart]).map(({ event, startMs }) => ({ id: `event:${event.id}`, taskId: null, eventName: event.name, startMs, ghost: false })),
+      ...eventOccurrences(otherEvents, [dayStart]).map(({ event, startMs }) => ({ id: `event:${event.id}`, taskId: null, startMs, ghost: true })),
+    ].sort((a, b) => a.startMs - b.startMs || Number(a.ghost) - Number(b.ghost) || a.id.localeCompare(b.id));
 
     return {
       dayStart,
       inMonth: startOfMonth(dayStart) === month,
-      entries: sorted.map(({ task, ghost }) => ({
-        taskId: ghost ? null : task.id,
-        ghost,
-        startMs: task.scheduledAt as number,
-      })),
+      entries: sorted.map((item): MonthEntry => {
+        const entry: MonthEntry = { taskId: item.taskId, ghost: item.ghost, startMs: item.startMs };
+        if ('eventName' in item && typeof item.eventName === 'string') entry.eventName = item.eventName;
+        return entry;
+      }),
     };
   });
 }
@@ -371,6 +389,8 @@ export interface HeatDay {
   minutes: number;
   /** The current context's tasks that day, in start order. Named in the tooltip. */
   own: Task[];
+  /** Current-context recurring events on this day. */
+  events?: { id: string; name: string; startMs: number }[];
 }
 
 /**

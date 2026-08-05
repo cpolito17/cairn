@@ -7,7 +7,7 @@
  */
 
 import { parseStoredSettings, SETTINGS_KEY } from '../shared/settings';
-import type { Board, BoardAccent, Context, Difficulty, Settings, Task } from '../shared/types';
+import type { Board, BoardAccent, Context, Difficulty, PlannerEvent, Settings, Task } from '../shared/types';
 
 export interface Env {
   DB: D1Database;
@@ -62,6 +62,11 @@ export interface TaskRow {
   updated_at: number;
 }
 
+export interface PlannerEventRow {
+  id: string; context: string; name: string; weekdays: string; frequency_weeks: number;
+  starts_on: string; start_minutes: number; duration_minutes: number; created_at: number; updated_at: number;
+}
+
 export function rowToBoard(row: BoardRow): Board {
   return {
     id: row.id,
@@ -97,6 +102,15 @@ export function rowToTask(row: TaskRow): Task {
   };
 }
 
+export function rowToEvent(row: PlannerEventRow): PlannerEvent {
+  return {
+    id: row.id, context: row.context as Context, name: row.name,
+    weekdays: JSON.parse(row.weekdays) as number[], frequencyWeeks: row.frequency_weeks as 1 | 2 | 4,
+    startsOn: row.starts_on, startMinutes: row.start_minutes, durationMinutes: row.duration_minutes,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
 /* --- queries -------------------------------------------------------------- */
 
 /**
@@ -108,6 +122,8 @@ const BOARD_COLUMNS =
 const TASK_COLUMNS =
   'id, board_id, name, notes, due_date, due_time, duration_minutes, scheduled_at, difficulty, ' +
   'priority, blocked, depends_on, position, created_at, completed_at, updated_at';
+const EVENT_COLUMNS =
+  'id, context, name, weekdays, frequency_weeks, starts_on, start_minutes, duration_minutes, created_at, updated_at';
 
 /**
  * Rows sort by position, then by id.
@@ -128,6 +144,16 @@ export async function selectTasks(db: D1Database): Promise<Task[]> {
     .prepare(`SELECT ${TASK_COLUMNS} FROM tasks ORDER BY position, id`)
     .all<TaskRow>();
   return results.map(rowToTask);
+}
+
+export async function selectEvents(db: D1Database): Promise<PlannerEvent[]> {
+  const { results } = await db.prepare(`SELECT ${EVENT_COLUMNS} FROM planner_events ORDER BY start_minutes, id`).all<PlannerEventRow>();
+  return results.map(rowToEvent);
+}
+
+export async function selectEvent(db: D1Database, id: string): Promise<PlannerEvent | null> {
+  const row = await db.prepare(`SELECT ${EVENT_COLUMNS} FROM planner_events WHERE id = ?`).bind(id).first<PlannerEventRow>();
+  return row ? rowToEvent(row) : null;
 }
 
 /**
@@ -230,6 +256,18 @@ export async function insertTask(db: D1Database, task: NewTask, now = Date.now()
   return rowToTask(row as TaskRow);
 }
 
+export type NewPlannerEvent = Omit<PlannerEvent, 'id' | 'createdAt' | 'updatedAt'>;
+
+export async function insertEvent(db: D1Database, event: NewPlannerEvent, now = Date.now()): Promise<PlannerEvent> {
+  const id = crypto.randomUUID();
+  const row = await db.prepare(
+    `INSERT INTO planner_events (id, context, name, weekdays, frequency_weeks, starts_on, start_minutes, duration_minutes, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${EVENT_COLUMNS}`,
+  ).bind(id, event.context, event.name, JSON.stringify(event.weekdays), event.frequencyWeeks, event.startsOn,
+    event.startMinutes, event.durationMinutes, now, now).first<PlannerEventRow>();
+  return rowToEvent(row as PlannerEventRow);
+}
+
 /** A column name mapped to the value to write. Empty means "nothing changed". */
 export type ColumnPatch = Record<string, string | number | null>;
 
@@ -273,6 +311,11 @@ export async function updateTask(
   return row ? rowToTask(row) : null;
 }
 
+export async function updateEvent(db: D1Database, id: string, patch: ColumnPatch, now = Date.now()): Promise<PlannerEvent | null> {
+  const row = await update<PlannerEventRow>(db, 'planner_events', EVENT_COLUMNS, id, patch, now);
+  return row ? rowToEvent(row) : null;
+}
+
 /**
  * Deleting a board takes its tasks with it through the foreign key, which is
  * why every mutating request calls `enableForeignKeys` first. Returns false
@@ -285,6 +328,11 @@ export async function deleteBoard(db: D1Database, id: string): Promise<boolean> 
 
 export async function deleteTask(db: D1Database, id: string): Promise<boolean> {
   const result = await db.prepare('DELETE FROM tasks WHERE id = ?').bind(id).run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function deleteEvent(db: D1Database, id: string): Promise<boolean> {
+  const result = await db.prepare('DELETE FROM planner_events WHERE id = ?').bind(id).run();
   return (result.meta.changes ?? 0) > 0;
 }
 

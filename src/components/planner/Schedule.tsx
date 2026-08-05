@@ -31,13 +31,14 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { DayLayout, PlacedBlock } from '../../../shared/planner';
 import { isSameDay } from '../../../shared/planner';
 import { startOfLocalDay } from '../../../shared/schedule';
-import type { Context, Settings, Task } from '../../../shared/types';
+import type { Context, PlannerEvent, Settings, Task } from '../../../shared/types';
 import { useNowMinute, useToday } from '../../lib/clock';
 import { useSchedule, useStore } from '../../lib/store';
 import { Button } from '../ui/Button';
 import { ErrorLine, loadErrorMessage } from '../ui/Section';
 import { Skeleton } from '../ui/Skeleton';
 import { Block } from './Block';
+import { EventBlock } from './EventBlock';
 import { PreviewSlot, useGridRegistration, type GridRegistration } from './scheduling';
 import { hourPixels, HOURS_PER_DAY, minutePixels, minutesInto, offsetOf } from './scale';
 
@@ -50,6 +51,8 @@ export interface ScheduleProps {
   days: number[];
   settings: Settings;
   onOpen(task: Task): void;
+  onOpenEvent(event: PlannerEvent): void;
+  onCreateSlot?: ((startMs: number, durationMinutes: number) => void) | undefined;
   /** The day pager, on narrow viewports. Sits above the columns. */
   pager?: ReactNode;
   /**
@@ -77,7 +80,7 @@ export interface PlacingSlot {
   since: number;
 }
 
-export function Schedule({ context, days, settings, onOpen, pager, placing }: ScheduleProps) {
+export function Schedule({ context, days, settings, onOpen, onOpenEvent, onCreateSlot, pager, placing }: ScheduleProps) {
   const status = useStore((state) => state.status);
 
   if (status === 'loading') return <ScheduleSkeleton days={days.length} pager={pager} />;
@@ -89,15 +92,18 @@ export function Schedule({ context, days, settings, onOpen, pager, placing }: Sc
       days={days}
       settings={settings}
       onOpen={onOpen}
+      onOpenEvent={onOpenEvent}
+      onCreateSlot={onCreateSlot}
       pager={pager}
       placing={placing}
     />
   );
 }
 
-function Grid({ context, days, settings, onOpen, pager, placing }: ScheduleProps) {
+function Grid({ context, days, settings, onOpen, onOpenEvent, onCreateSlot, pager, placing }: ScheduleProps) {
   const layouts = useSchedule(context, days[0], days.length);
   const tasks = useStore((state) => state.tasks);
+  const events = useStore((state) => state.events);
   const today = useToday();
   /**
    * The gesture needs three things about the grid and reads them itself: the
@@ -151,7 +157,7 @@ function Grid({ context, days, settings, onOpen, pager, placing }: ScheduleProps
   }, [box, placing]);
 
   return (
-    <div className="mt-4">
+    <div className="mt-4 min-h-0 flex-1">
       {pager}
       <div
         ref={setBox}
@@ -162,7 +168,7 @@ function Grid({ context, days, settings, onOpen, pager, placing }: ScheduleProps
           // Tall enough to read an afternoon, short enough to leave the
           // toolbar and the pager on screen. `dvh` because iOS Safari is the
           // primary mobile target and `vh` lies there.
-          height: 'clamp(20rem, calc(100dvh - 17rem), 52rem)',
+          height: days.length === 1 ? 'clamp(20rem, calc(100dvh - 17rem), 52rem)' : '100%',
         }}
       >
         {/* The day headers scroll horizontally with nothing and vertically with
@@ -188,9 +194,12 @@ function Grid({ context, days, settings, onOpen, pager, placing }: ScheduleProps
               key={layout.dayStart}
               layout={layout}
               tasks={tasks}
+              events={events}
               settings={settings}
               today={isSameDay(layout.dayStart, today)}
               onOpen={onOpen}
+              onOpenEvent={onOpenEvent}
+              onCreateSlot={onCreateSlot}
               placing={placing && isSameDay(placing.startMs, layout.dayStart) ? placing : null}
             />
           ))}
@@ -297,16 +306,22 @@ function layoutDayEnd(at: number): number {
 function DayColumn({
   layout,
   tasks,
+  events,
   settings,
   today,
   onOpen,
+  onOpenEvent,
+  onCreateSlot,
   placing,
 }: {
   layout: DayLayout;
   tasks: Record<string, Task>;
+  events: Record<string, PlannerEvent>;
   settings: Settings;
   today: boolean;
   onOpen(task: Task): void;
+  onOpenEvent(event: PlannerEvent): void;
+  onCreateSlot?: ((startMs: number, durationMinutes: number) => void) | undefined;
   placing: PlacingSlot | null;
 }) {
   const gaps = gapsBelow(layout.blocks);
@@ -314,10 +329,42 @@ function DayColumn({
   // read the root font size for itself.
   const ppm = minutePixels();
 
+  const draft = useRef<{ pointerId: number; y: number; anchor: number; active: boolean } | null>(null);
+  const [creating, setCreating] = useState<{ start: number; minutes: number } | null>(null);
+
+  function createDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (!onCreateSlot || e.button !== 0 || (e.target as HTMLElement).closest('[data-block-id], [data-event-block], .planner-resize')) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const minute = Math.max(0, Math.min(1425, Math.floor(((e.clientY - rect.top) / ppm) / 15) * 15));
+    draft.current = { pointerId: e.pointerId, y: e.clientY, anchor: minute, active: false };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+  function createMove(e: React.PointerEvent<HTMLDivElement>) {
+    const value = draft.current;
+    if (!value || value.pointerId !== e.pointerId) return;
+    if (!value.active && Math.abs(e.clientY - value.y) < 5) return;
+    value.active = true;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const minute = Math.max(0, Math.min(1440, Math.round(((e.clientY - rect.top) / ppm) / 15) * 15));
+    const start = Math.min(value.anchor, minute);
+    setCreating({ start, minutes: Math.max(15, Math.abs(minute - value.anchor)) });
+  }
+  function createUp(e: React.PointerEvent<HTMLDivElement>) {
+    const value = draft.current;
+    if (!value || value.pointerId !== e.pointerId) return;
+    draft.current = null;
+    if (value.active && creating) onCreateSlot?.(layout.dayStart + creating.start * 60_000, creating.minutes);
+    setCreating(null);
+  }
+
   return (
     <div
       data-day-column=""
       data-day-start={layout.dayStart}
+      onPointerDown={createDown}
+      onPointerMove={createMove}
+      onPointerUp={createUp}
+      onPointerCancel={createUp}
       className="relative min-w-0 flex-1 bg-bg"
       style={{ borderLeft: 'var(--hairline-width) solid var(--hairline)' }}
     >
@@ -352,7 +399,10 @@ function DayColumn({
       />
 
       {layout.blocks.map((block, index) => (
-        <Block
+        block.eventId && events[block.eventId] ? <EventBlock
+          key={`event:${block.eventId}:${block.startMs}`}
+          block={block} dayStart={layout.dayStart} event={events[block.eventId]} onOpen={onOpenEvent}
+        /> : <Block
           key={block.ghost ? `ghost:${block.startMs}:${block.lane}` : (block.taskId as string)}
           block={block}
           dayStart={layout.dayStart}
@@ -362,6 +412,11 @@ function DayColumn({
           onOpen={onOpen}
         />
       ))}
+
+      {creating && <div className="pointer-events-none absolute z-10 overflow-hidden rounded-chip bg-accent-tint px-2 text-left text-row text-text"
+        style={{ top: offsetOf(creating.start), height: offsetOf(creating.minutes), left: 2, right: 2, border: '2px solid var(--accent)' }}>
+        <span style={{ lineHeight: creating.minutes <= 15 ? offsetOf(15) : undefined }}>New Task</span>
+      </div>}
 
       {placing && <PlacingHighlight placing={placing} dayStart={layout.dayStart} />}
 

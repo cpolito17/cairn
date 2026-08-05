@@ -22,7 +22,7 @@
  * clicking a day opens the week view there.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   DAYS_PER_WEEK,
   addDays,
@@ -33,6 +33,7 @@ import {
   type HeatDay,
 } from '../../../shared/planner';
 import { localDayKey } from '../../../shared/schedule';
+import { eventOccurrences } from '../../../shared/events';
 import type { Context, Settings } from '../../../shared/types';
 import { formatDuration } from '../../lib/dates';
 import { useHeat, useStore } from '../../lib/store';
@@ -119,8 +120,25 @@ interface Hovered {
 }
 
 function Heatmap({ context, anchor, settings, now, onOpenDay }: YearHeatmapProps) {
-  const heat = useHeat(context);
+  const taskHeat = useHeat(context);
   const weeks = yearGridWeeks(anchor);
+  const allEvents = useStore((state) => state.events);
+  const heat = useMemo(() => {
+    const result: Record<string, HeatDay> = Object.fromEntries(
+      Object.entries(taskHeat).map(([key, value]) => [key, { ...value, events: [...(value.events ?? [])] }]),
+    );
+    const days = weeks.flatMap((week) => Array.from({ length: DAYS_PER_WEEK }, (_, row) => addDays(week, row)));
+    for (const occurrence of eventOccurrences(Object.values(allEvents), days)) {
+      const key = localDayKey(occurrence.startMs);
+      const entry = result[key] ?? { minutes: 0, own: [], events: [] };
+      entry.minutes += occurrence.event.durationMinutes;
+      if (occurrence.event.context === context) {
+        (entry.events ??= []).push({ id: occurrence.event.id, name: occurrence.event.name, startMs: occurrence.startMs });
+      }
+      result[key] = entry;
+    }
+    return result;
+  }, [taskHeat, weeks, allEvents, context]);
   const workday = workdayMinutes(settings);
   const fine = useFinePointer();
 
@@ -346,6 +364,7 @@ function Tooltip({
   const entry = heat[localDayKey(hovered.day)];
   const minutes = entry?.minutes ?? 0;
   const own = entry?.own ?? [];
+  const events = entry?.events ?? [];
   const date = new Date(hovered.day);
 
   /**
@@ -403,11 +422,16 @@ function Tooltip({
         {minutes === 0 ? 'Nothing scheduled' : `${formatDuration(minutes)} scheduled`}
       </p>
 
-      {own.length > 0 && (
+      {(own.length > 0 || events.length > 0) && (
         <ul className="mt-1">
           {own.map((task) => (
             <li key={task.id} className="truncate text-meta text-text-secondary">
               {task.name}
+            </li>
+          ))}
+          {events.map((event) => (
+            <li key={`event:${event.id}`} className="truncate text-meta text-text-secondary">
+              {event.name}
             </li>
           ))}
         </ul>

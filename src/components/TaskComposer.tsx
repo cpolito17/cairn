@@ -71,13 +71,13 @@ interface Draft {
   dependsOn: string;
 }
 
-function draftOf(task: Task | undefined, prefill: string): Draft {
+function draftOf(task: Task | undefined, prefill: string, initialDuration: number | null): Draft {
   return {
     name: task?.name ?? prefill,
     notes: task?.notes ?? '',
     dueDate: task?.dueDate ?? '',
     dueTime: task?.dueTime ?? '',
-    durationMinutes: task?.durationMinutes ?? null,
+    durationMinutes: task?.durationMinutes ?? initialDuration,
     difficulty: task?.difficulty ?? null,
     priority: task?.priority ?? false,
     blocked: task?.blocked ?? false,
@@ -109,6 +109,10 @@ export interface TaskComposerProps {
   context: Context;
   /** Create mode: whatever quick add had typed when it was expanded. */
   prefillName?: string;
+  /** Planner-created tasks may choose their board in the composer. */
+  chooseBoard?: boolean;
+  initialScheduledAt?: number | null;
+  initialDurationMinutes?: number | null;
 }
 
 export function TaskComposer({
@@ -118,9 +122,14 @@ export function TaskComposer({
   boardId,
   context,
   prefillName = '',
+  chooseBoard = false,
+  initialScheduledAt = null,
+  initialDurationMinutes = null,
 }: TaskComposerProps) {
   const editing = task !== undefined;
-  const initial = useMemo(() => draftOf(task, prefillName), [task, prefillName]);
+  const boards = useStore((state) => selectBoardsFor(state, context));
+  const [targetBoardId, setTargetBoardId] = useState(boardId);
+  const initial = useMemo(() => draftOf(task, prefillName, initialDurationMinutes), [task, prefillName, initialDurationMinutes]);
   const [draft, setDraft] = useState<Draft>(initial);
   const [nameError, setNameError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -135,7 +144,8 @@ export function TaskComposer({
     setNameError(null);
     setConfirmDiscard(false);
     setConfirmDelete(false);
-  }, [open, initial]);
+    setTargetBoardId(boardId || boards[0]?.id || '');
+  }, [open, initial, boardId, boards]);
 
   const dirty = !same(draft, initial);
   const nested = confirmDiscard || confirmDelete;
@@ -186,13 +196,18 @@ export function TaskComposer({
         void useStore.getState().mutate(updateTaskSpec(task, body));
       }
     } else {
+      if (!targetBoardId) {
+        setNameError('Create a board before adding a task.');
+        return;
+      }
       addTask({
-        boardId,
+        boardId: targetBoardId,
         name,
         notes: draft.notes.trim() || null,
         dueDate: draft.dueDate || null,
         dueTime: draft.dueTime || null,
         durationMinutes: draft.durationMinutes,
+        scheduledAt: initialScheduledAt,
         difficulty: draft.difficulty,
         priority: draft.priority,
         blocked: draft.blocked,
@@ -234,6 +249,22 @@ export function TaskComposer({
             }}
             onBlur={() => setNameError(draft.name.trim() === '' ? 'A task needs a name.' : null)}
           />
+
+          {!editing && chooseBoard && (
+            <Field>
+              <label className="mb-1 block text-text-secondary" style={{ fontSize: '13px', fontWeight: 500 }}>
+                Board
+                <select
+                  value={targetBoardId}
+                  onChange={(event) => setTargetBoardId(event.target.value)}
+                  className="mt-1 block w-full rounded-control border-0 bg-surface-2 px-3 text-text"
+                  style={{ height: 'var(--tap-target)' }}
+                >
+                  {boards.map((board) => <option key={board.id} value={board.id}>{board.name}</option>)}
+                </select>
+              </label>
+            </Field>
+          )}
 
           <Field>
             <Textarea
@@ -316,7 +347,7 @@ export function TaskComposer({
           <Field>
             <DependsOn
               task={task}
-              boardId={boardId}
+              boardId={editing ? boardId : targetBoardId}
               value={draft.dependsOn}
               onChange={(value) => set('dependsOn', value)}
             />

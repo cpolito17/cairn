@@ -33,7 +33,7 @@
  * to page the week under itself.
  */
 
-import { CaretLeft, CaretRight, ListBullets } from '@phosphor-icons/react';
+import { CaretLeft, CaretRight, ListBullets, Plus } from '@phosphor-icons/react';
 import { useEffect, useState } from 'react';
 import {
   addDays,
@@ -45,7 +45,7 @@ import {
   yearGridWeeks,
 } from '../../shared/planner';
 import { effectiveMinutes, startOfLocalDay } from '../../shared/schedule';
-import { SCHEDULE_STEP_MINUTES, type PlannerView, type Task } from '../../shared/types';
+import { SCHEDULE_STEP_MINUTES, type PlannerEvent, type PlannerView, type Task } from '../../shared/types';
 import { DayPager } from '../components/planner/DayPager';
 import { MonthGrid } from '../components/planner/MonthGrid';
 import { YearHeatmap } from '../components/planner/YearHeatmap';
@@ -53,6 +53,7 @@ import { Schedule, type PlacingSlot } from '../components/planner/Schedule';
 import { usePlannerWide } from '../components/planner/scale';
 import { SchedulingProvider } from '../components/planner/scheduling';
 import { UnscheduledList } from '../components/planner/UnscheduledList';
+import { EventEditor } from '../components/planner/EventEditor';
 import { TaskComposer } from '../components/TaskComposer';
 import { Segmented } from '../components/ui/Segmented';
 import { Sheet } from '../components/ui/Sheet';
@@ -110,6 +111,8 @@ export function Planner() {
   const [anchor, setAnchor] = useState(() => startOfLocalDay(Date.now()));
   const [listOpen, setListOpen] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
+  const [creating, setCreating] = useState<{ scheduledAt: number; durationMinutes: number } | null>(null);
+  const [eventEditor, setEventEditor] = useState<PlannerEvent | 'new' | null>(null);
   /** §6.7's keyboard placement: the proposed slot, or null when not placing. */
   const [placing, setPlacing] = useState<PlacingSlot | null>(null);
 
@@ -271,7 +274,7 @@ export function Planner() {
           </aside>
         )}
 
-        <section className="min-w-0">
+        <section className="flex min-h-0 min-w-0 flex-col">
           <div className="flex flex-wrap items-center gap-3">
             <Segmented
               id="planner-view"
@@ -284,6 +287,16 @@ export function Planner() {
               // once there is room beside it.
               className="w-full sm:w-auto sm:min-w-[15rem]"
             />
+
+            <button
+              type="button"
+              onClick={() => setEventEditor('new')}
+              className="pressable flex items-center gap-2 rounded-chip bg-surface-2 px-3 text-meta text-text-secondary"
+              style={{ minHeight: 'var(--tap-target)', fontWeight: 600 }}
+            >
+              <Plus size={16} />
+              New Event
+            </button>
 
             <div className="flex flex-1 items-center justify-end gap-1">
               <button
@@ -340,6 +353,8 @@ export function Planner() {
               days={wide ? days : [startOfLocalDay(anchor)]}
               settings={settings}
               onOpen={setEditing}
+              onOpenEvent={setEventEditor}
+              onCreateSlot={(scheduledAt, durationMinutes) => setCreating({ scheduledAt, durationMinutes })}
               placing={placing}
               pager={
                 wide ? undefined : (
@@ -382,11 +397,21 @@ export function Planner() {
       )}
 
       <TaskComposer
-        open={editing !== null}
-        onClose={() => setEditing(null)}
+        open={editing !== null || creating !== null}
+        onClose={() => { setEditing(null); setCreating(null); }}
         task={editing ?? undefined}
         boardId={editing?.boardId ?? ''}
         context={context}
+        prefillName={creating ? 'New Task' : ''}
+        chooseBoard={creating !== null}
+        initialScheduledAt={creating?.scheduledAt ?? null}
+        initialDurationMinutes={creating?.durationMinutes ?? null}
+      />
+      <EventEditor
+        open={eventEditor !== null}
+        onClose={() => setEventEditor(null)}
+        context={context}
+        event={eventEditor === 'new' || eventEditor === null ? undefined : eventEditor}
       />
     </SchedulingProvider>
   );

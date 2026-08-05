@@ -38,7 +38,7 @@ import { Flag } from '@phosphor-icons/react';
 import type { PlacedBlock } from '../../../shared/planner';
 import { effectiveMinutes } from '../../../shared/schedule';
 import { formatBlockTime } from '../../lib/dates';
-import { SCHEDULE_STEP_MINUTES, type Task } from '../../../shared/types';
+import { MIN_DURATION_MINUTES, SCHEDULE_STEP_MINUTES, type Task } from '../../../shared/types';
 import { resizeTaskSpec, unscheduleTaskSpec, useStore } from '../../lib/store';
 import { clampDuration, useDragHandlers, useIsDragging } from './scheduling';
 import { minutesInto, offsetOf } from './scale';
@@ -64,9 +64,9 @@ export const LANE_GAP_PX = 2;
  * own aria label and its keyboard resize are what carry the case the pixels
  * cannot.
  */
-const HANDLE_TARGET_PX = 44;
-const HANDLE_BELOW_MAX_PX = 11;
-const HANDLE_ABOVE_SHARE = 0.6;
+const HANDLE_TARGET_PX = 26;
+const HANDLE_BELOW_MAX_PX = 6;
+const HANDLE_ABOVE_SHARE = 0.35;
 
 export interface BlockProps {
   block: PlacedBlock;
@@ -221,15 +221,15 @@ export function BlockFace({
 
   return (
     <span
-      className="flex w-full flex-col items-start px-2 py-1 text-left"
-      style={{ opacity: fade }}
+      className={`flex w-full flex-col items-start px-2 text-left ${expanded ? 'py-1' : 'py-0'}`}
+      style={{ opacity: fade, minHeight: expanded ? undefined : offsetOf(MIN_DURATION_MINUTES) }}
     >
       <span
         className="w-full text-left"
         style={{
           fontSize: '0.8125rem',
           fontWeight: 500,
-          lineHeight: 1.25,
+          lineHeight: expanded ? 1.25 : offsetOf(MIN_DURATION_MINUTES),
           textDecoration: done ? 'line-through' : undefined,
           // Two lines when there is room for two, one when there is not — and
           // the truncation is the same mechanism either way, so a name that

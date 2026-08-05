@@ -450,8 +450,9 @@
   @media (min-width: 1024px) {
     .planner-layout {
       grid-template-columns: 300px minmax(0, 1fr);
-      align-items: start;
+      align-items: stretch;
       gap: var(--space-8);
+      height: clamp(32rem, calc(100dvh - 9rem), 56rem);
     }
   }
 
@@ -460,6 +461,8 @@
      one scroll region too many on a trackpad. */
   .planner-pane {
     min-width: 0;
+    min-height: 0;
+    overflow: hidden;
   }
 
   /* §8.5 gates every hover affordance — a touch device false-positives hover on

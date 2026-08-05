@@ -144,6 +144,24 @@ export interface Task {
   updatedAt: number;
 }
 
+/** A recurring calendar-only block. Events never belong to boards. */
+export interface PlannerEvent {
+  id: string;
+  context: Context;
+  name: string;
+  /** Sunday = 0 through Saturday = 6. */
+  weekdays: number[];
+  /** Repeat every N weeks, anchored by `startsOn`. */
+  frequencyWeeks: 1 | 2 | 4;
+  /** Local calendar date, YYYY-MM-DD. */
+  startsOn: string;
+  /** Minutes from local midnight, snapped to the Planner grid. */
+  startMinutes: number;
+  durationMinutes: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /**
  * User settings. V2 §3.2.
  *
@@ -180,6 +198,7 @@ export const PLANNER_SORTS: readonly PlannerSort[] = [
 export interface AppState {
   boards: Board[];
   tasks: Task[];
+  events: PlannerEvent[];
   settings: Settings;
 }
 

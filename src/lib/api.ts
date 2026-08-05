@@ -23,6 +23,7 @@ import type {
   BoardAccent,
   Context,
   Difficulty,
+  PlannerEvent,
   Settings,
   Task,
 } from '../../shared/types';
@@ -258,6 +259,23 @@ export function updateTask(id: string, patch: TaskPatch): Promise<Task> {
 
 export async function deleteTask(id: string): Promise<void> {
   await call(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/* --- planner events ------------------------------------------------------- */
+
+export type EventDraft = Omit<PlannerEvent, 'id' | 'createdAt' | 'updatedAt'>;
+export type EventPatch = Partial<Omit<EventDraft, 'context'>>;
+
+export function createEvent(draft: EventDraft): Promise<PlannerEvent> {
+  return callJson<PlannerEvent>('/api/events', { method: 'POST', body: draft });
+}
+
+export function updateEvent(id: string, patch: EventPatch): Promise<PlannerEvent> {
+  return callJson<PlannerEvent>(`/api/events/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch });
+}
+
+export async function deleteEvent(id: string): Promise<void> {
+  await call(`/api/events/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 /* --- settings -------------------------------------------------------------- */

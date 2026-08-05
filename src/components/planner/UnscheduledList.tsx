@@ -22,7 +22,7 @@
  * of every list surface and this is a list surface.
  */
 
-import { Clock, Flag, LinkSimple, Prohibit, Timer } from '@phosphor-icons/react';
+import { CaretDown, CaretRight, Clock, Flag, LinkSimple, Prohibit, Timer } from '@phosphor-icons/react';
 import { motion, useReducedMotion } from 'motion/react';
 import { useId, useRef, useState } from 'react';
 import type { TaskGroup } from '../../../shared/planner';
@@ -80,13 +80,13 @@ export function UnscheduledList({ context, settings, onOpen, onPlace }: Unschedu
   const coldRows = coldSurface ? initialRows.current : null;
 
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <Controls settings={settings} count={status === 'ready' ? tasks.length : null} />
 
       <div
         ref={registerList}
         data-unscheduled-drop=""
-        className="relative min-h-0"
+        className="relative min-h-0 flex-1 overflow-y-auto pr-1"
         style={{
           // The refusal-and-acceptance boundary §8.5 asks for, as opacity on a
           // ring that is always there. A block over the list will be unscheduled
@@ -226,29 +226,35 @@ function Grouped({
   hintId: string;
   coldRows: Set<string> | null;
 }) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   let offset = 0;
   return (
     <>
       {groups.map((group) => {
         const start = offset;
         offset += group.tasks.length;
+        const closed = collapsed.has(group.boardId);
         return (
           <section key={group.boardId} className="mb-4">
             {/* §8.3's section header: 13px uppercase, 600, +0.02em. */}
-            <h3
-              className="mb-2 truncate text-section text-text-secondary"
-              style={{ textTransform: 'uppercase' }}
-            >
-              {group.boardName}
+            <h3 className="mb-2">
+              <button type="button" aria-expanded={!closed}
+                onClick={() => setCollapsed((was) => { const next = new Set(was); closed ? next.delete(group.boardId) : next.add(group.boardId); return next; })}
+                className="pressable flex min-h-11 w-full items-center gap-1 truncate rounded-chip text-left text-section text-text-secondary"
+                style={{ textTransform: 'uppercase' }}>
+                {closed ? <CaretRight size={15} /> : <CaretDown size={15} />}
+                <span className="truncate">{group.boardName}</span>
+                <span className="ml-auto text-meta text-text-tertiary">{group.tasks.length}</span>
+              </button>
             </h3>
-            <Rows
+            {!closed && <Rows
               tasks={group.tasks}
               onOpen={onOpen}
               onPlace={onPlace}
               offset={start}
               hintId={hintId}
               coldRows={coldRows}
-            />
+            />}
           </section>
         );
       })}

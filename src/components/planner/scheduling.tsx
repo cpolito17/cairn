@@ -86,7 +86,7 @@ import {
   useStore,
   type MutationSpec,
 } from '../../lib/store';
-import { BlockFace, blockSurface, LANE_GAP_PX } from './Block';
+import { BlockFace, blockRange, blockSurface, LANE_GAP_PX } from './Block';
 import { minutePixels } from './scale';
 
 const MINUTE_MS = 60_000;
@@ -1487,6 +1487,14 @@ function DragLayer({ scheduler }: { scheduler: Scheduler }) {
         <ResizeShape spec={spec} scheduler={scheduler} slot={state.slot} />
       ) : (
         <DragShape spec={spec} slot={state.slot} />
+      )}
+      {state.slot && (
+        <div
+          className="pointer-events-none absolute left-[calc(100%+8px)] top-0 whitespace-nowrap rounded-chip bg-surface px-2 py-1 text-meta text-text shadow-md"
+          style={{ zIndex: 2 }}
+        >
+          {blockRange(state.slot.startMs, state.slot.minutes)}
+        </div>
       )}
     </div>,
     document.body,
