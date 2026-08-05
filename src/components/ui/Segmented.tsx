@@ -13,7 +13,7 @@
 
 import { motion } from 'motion/react';
 import { useRef } from 'react';
-import { UI_SPRING } from '../../lib/motion';
+import { keyboardMotionActive, UI_SPRING } from '../../lib/motion';
 
 export interface SegmentedOption<T extends string> {
   value: T;
@@ -137,7 +137,7 @@ export function Segmented<T extends string>({
                   // dial §8.5 means by response; plain `duration` on a spring is
                   // its total settle and lands somewhere else entirely.
                   transition={
-                    viaKeyboard.current
+                    viaKeyboard.current || keyboardMotionActive()
                       ? { duration: 0 }
                       : { ...UI_SPRING, visualDuration: 0.2 }
                   }

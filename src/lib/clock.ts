@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { startOfLocalDay } from '../../shared/schedule';
 
 const MINUTE_MS = 60_000;
 
@@ -39,4 +40,35 @@ export function useNowMinute(): number {
   }, []);
 
   return now;
+}
+
+/**
+ * Local midnight, updated once when the calendar day changes. Day labels and
+ * "today" markers need this cadence; subscribing the whole Planner to the
+ * minute clock just to learn the date makes every block and lane re-render 1440
+ * times a day while only the now line has actually moved.
+ */
+export function useToday(): number {
+  const [today, setToday] = useState(() => startOfLocalDay(Date.now()));
+
+  useEffect(() => {
+    let timer = 0;
+
+    const tick = () => {
+      const at = Date.now();
+      setToday(startOfLocalDay(at));
+      timer = window.setTimeout(tick, nextMidnightDelay(at));
+    };
+
+    timer = window.setTimeout(tick, nextMidnightDelay(Date.now()));
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  return today;
+}
+
+function nextMidnightDelay(at: number): number {
+  const next = new Date(at);
+  next.setHours(24, 0, 0, 0);
+  return Math.max(1, next.getTime() - at);
 }

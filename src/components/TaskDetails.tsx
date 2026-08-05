@@ -39,7 +39,9 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { motion } from 'motion/react';
 import { formatDue, formatDuration, formatOverdue } from '../lib/dates';
+import { keyboardMotionActive, OUT } from '../lib/motion';
 import { useBlockedBy } from '../lib/store';
 import type { Task } from '../../shared/types';
 
@@ -253,9 +255,12 @@ function DetailsCard({ task, placement }: { task: Task; placement: Placement }) 
   const empty = rows.length === 0 && !task.notes;
 
   return createPortal(
-    <div
+    <motion.div
       role="tooltip"
       className="cairn-details pointer-events-none fixed z-50 p-3"
+      initial={keyboardMotionActive() ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.12, ease: OUT }}
       style={{
         left: placement.left,
         top: placement.top,
@@ -284,7 +289,7 @@ function DetailsCard({ task, placement }: { task: Task; placement: Placement }) 
       {rows.length > 0 && <div className="mt-2 grid gap-1">{rows}</div>}
 
       {empty && <p className="mt-2 text-meta text-text-tertiary">No details yet</p>}
-    </div>,
+    </motion.div>,
     document.body,
   );
 }

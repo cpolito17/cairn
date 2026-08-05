@@ -25,7 +25,7 @@ import { boardProgress, type BoardProgress } from '../../shared/progress';
 import type { Board, Task } from '../../shared/types';
 import { toggleComplete } from '../lib/actions';
 import { formatDue, formatOverdue } from '../lib/dates';
-import { prefersReducedMotion } from '../lib/motion';
+import { keyboardMotionActive, prefersReducedMotion } from '../lib/motion';
 import { useBoards, useStore } from '../lib/store';
 import { TaskComposer } from '../components/TaskComposer';
 import { TaskDetails } from '../components/TaskDetails';
@@ -521,7 +521,7 @@ function useAutoScrollOnMount(
 
     element.scrollTo({
       left: Math.max(0, left - 12),
-      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      behavior: prefersReducedMotion() || keyboardMotionActive() ? 'auto' : 'smooth',
     });
   }, [scroll]);
 }

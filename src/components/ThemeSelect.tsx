@@ -28,7 +28,7 @@
 import { CaretDown, Check } from '@phosphor-icons/react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useId, useRef, useState } from 'react';
-import { OUT } from '../lib/motion';
+import { keyboardMotionActive, OUT } from '../lib/motion';
 import { THEME_GROUPS, THEME_LABELS, THEME_SWATCHES, type Theme } from '../lib/theme';
 
 export interface ThemeSelectProps {
@@ -45,6 +45,7 @@ export function ThemeSelect({ value, onChange }: ThemeSelectProps) {
   const trigger = useRef<HTMLButtonElement>(null);
   const rows = useRef<Record<string, HTMLButtonElement | null>>({});
   const listId = useId();
+  const keyboard = keyboardMotionActive();
 
   // The selected theme is read through a ref by the open effect below, which
   // must run on *opening* and not again when the selection changes — re-running
@@ -134,7 +135,7 @@ export function ThemeSelect({ value, onChange }: ThemeSelectProps) {
         />
       </button>
 
-      <AnimatePresence>
+      <AnimatePresence custom={keyboard}>
         {open && (
           <motion.div
             id={listId}
@@ -146,11 +147,22 @@ export function ThemeSelect({ value, onChange }: ThemeSelectProps) {
               border: 'var(--hairline-width) solid var(--hairline)',
               boxShadow: 'var(--shadow-md)',
             }}
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            // §8.5 puts dropdowns at 150–250ms on the out curve.
-            transition={{ duration: 0.18, ease: OUT }}
+            custom={keyboard}
+            variants={{
+              closed: (instant: boolean) => ({
+                opacity: 0,
+                y: -4,
+                transition: instant ? { duration: 0 } : { duration: 0.18, ease: OUT },
+              }),
+              open: (instant: boolean) => ({
+                opacity: 1,
+                y: 0,
+                transition: instant ? { duration: 0 } : { duration: 0.18, ease: OUT },
+              }),
+            }}
+            initial="closed"
+            animate="open"
+            exit="closed"
           >
             {THEME_GROUPS.map((group) => (
               <div key={group.label} role="group" aria-label={group.label}>

@@ -23,8 +23,8 @@
  */
 
 import { Clock, Flag, LinkSimple, Prohibit, Timer } from '@phosphor-icons/react';
-import { motion } from 'motion/react';
-import { useId, useState } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
+import { useId, useRef, useState } from 'react';
 import type { TaskGroup } from '../../../shared/planner';
 import type { Context, PlannerSort, Settings, Task } from '../../../shared/types';
 import { claimColdLoad, staggerDelay } from '../../lib/coldload';
@@ -72,6 +72,12 @@ export function UnscheduledList({ context, settings, onOpen, onPlace }: Unschedu
   const registerList = useListRegistration();
   const overList = useOverList();
   const hintId = useId();
+  const [coldSurface] = useState(() => claimColdLoad('planner-unscheduled-list'));
+  const initialRows = useRef<Set<string> | null>(null);
+  if (status === 'ready' && initialRows.current === null) {
+    initialRows.current = new Set(tasks.map((task) => task.id));
+  }
+  const coldRows = coldSurface ? initialRows.current : null;
 
   return (
     <div className="flex min-h-0 flex-col">
@@ -98,9 +104,22 @@ export function UnscheduledList({ context, settings, onOpen, onPlace }: Unschedu
         ) : tasks.length === 0 ? (
           <EmptyLine>Everything is scheduled.</EmptyLine>
         ) : settings.plannerGroupByBoard ? (
-          <Grouped groups={groups} onOpen={onOpen} onPlace={onPlace} hintId={hintId} />
+          <Grouped
+            groups={groups}
+            onOpen={onOpen}
+            onPlace={onPlace}
+            hintId={hintId}
+            coldRows={coldRows}
+          />
         ) : (
-          <Rows tasks={tasks} onOpen={onOpen} onPlace={onPlace} offset={0} hintId={hintId} />
+          <Rows
+            tasks={tasks}
+            onOpen={onOpen}
+            onPlace={onPlace}
+            offset={0}
+            hintId={hintId}
+            coldRows={coldRows}
+          />
         )}
 
         {/* Named by every row, so the two keys are discoverable rather than
@@ -199,11 +218,13 @@ function Grouped({
   onOpen,
   onPlace,
   hintId,
+  coldRows,
 }: {
   groups: TaskGroup[];
   onOpen(task: Task): void;
   onPlace?: ((task: Task, since: number) => void) | undefined;
   hintId: string;
+  coldRows: Set<string> | null;
 }) {
   let offset = 0;
   return (
@@ -226,6 +247,7 @@ function Grouped({
               onPlace={onPlace}
               offset={start}
               hintId={hintId}
+              coldRows={coldRows}
             />
           </section>
         );
@@ -240,12 +262,14 @@ function Rows({
   onPlace,
   offset,
   hintId,
+  coldRows,
 }: {
   tasks: Task[];
   onOpen(task: Task): void;
   onPlace?: ((task: Task, since: number) => void) | undefined;
   offset: number;
   hintId: string;
+  coldRows: Set<string> | null;
 }) {
   return (
     <ul className="flex flex-col gap-1">
@@ -257,6 +281,7 @@ function Rows({
             onOpen={onOpen}
             onPlace={onPlace}
             hintId={hintId}
+            cold={coldRows?.has(task.id) === true}
           />
         </li>
       ))}
@@ -287,17 +312,19 @@ function UnscheduledRow({
   onOpen,
   onPlace,
   hintId,
+  cold,
 }: {
   task: Task;
   index: number;
   onOpen(task: Task): void;
   onPlace?: ((task: Task, since: number) => void) | undefined;
   hintId: string;
+  cold: boolean;
 }) {
   const waiting = useBlockedBy(task.id);
   const recessed = waiting !== null || task.blocked;
   const [now] = useState(() => Date.now());
-  const [cold] = useState(() => claimColdLoad(`planner-row:${task.id}`));
+  const reduced = useReducedMotion();
   const due = formatDue(task, now);
   const dragging = useIsDragging(task.id);
   const handlers = useDragHandlers(task, 'create');
@@ -316,7 +343,13 @@ function UnscheduledRow({
         ? {
             initial: { opacity: 0, y: 8 },
             animate: { opacity: 1, y: 0 },
-            transition: { duration: 0.24, ease: OUT, delay: staggerDelay(index) },
+            transition: {
+              duration: 0.24,
+              ease: OUT,
+              // Reduced motion keeps the explanatory fade but removes the
+              // cascading delay: all rows arrive together, with no stagger.
+              delay: reduced ? 0 : staggerDelay(index),
+            },
           }
         : {})}
     >

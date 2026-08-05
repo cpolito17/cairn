@@ -32,7 +32,7 @@ import type { DayLayout, PlacedBlock } from '../../../shared/planner';
 import { isSameDay } from '../../../shared/planner';
 import { startOfLocalDay } from '../../../shared/schedule';
 import type { Context, Settings, Task } from '../../../shared/types';
-import { useNowMinute } from '../../lib/clock';
+import { useNowMinute, useToday } from '../../lib/clock';
 import { useSchedule, useStore } from '../../lib/store';
 import { Button } from '../ui/Button';
 import { ErrorLine, loadErrorMessage } from '../ui/Section';
@@ -98,7 +98,7 @@ export function Schedule({ context, days, settings, onOpen, pager, placing }: Sc
 function Grid({ context, days, settings, onOpen, pager, placing }: ScheduleProps) {
   const layouts = useSchedule(context, days[0], days.length);
   const tasks = useStore((state) => state.tasks);
-  const now = useNowMinute();
+  const today = useToday();
   /**
    * The gesture needs three things about the grid and reads them itself: the
    * box that scrolls, the row whose top edge is minute zero, and which days
@@ -174,7 +174,7 @@ function Grid({ context, days, settings, onOpen, pager, placing }: ScheduleProps
         >
           <div style={{ width: AXIS_WIDTH, flexShrink: 0 }} />
           {days.map((day) => (
-            <DayHeader key={day} day={day} now={now} single={days.length === 1} />
+            <DayHeader key={day} day={day} now={today} single={days.length === 1} />
           ))}
         </div>
 
@@ -189,7 +189,7 @@ function Grid({ context, days, settings, onOpen, pager, placing }: ScheduleProps
               layout={layout}
               tasks={tasks}
               settings={settings}
-              now={now}
+              today={isSameDay(layout.dayStart, today)}
               onOpen={onOpen}
               placing={placing && isSameDay(placing.startMs, layout.dayStart) ? placing : null}
             />
@@ -298,19 +298,17 @@ function DayColumn({
   layout,
   tasks,
   settings,
-  now,
+  today,
   onOpen,
   placing,
 }: {
   layout: DayLayout;
   tasks: Record<string, Task>;
   settings: Settings;
-  now: number;
+  today: boolean;
   onOpen(task: Task): void;
   placing: PlacingSlot | null;
 }) {
-  const today = isSameDay(layout.dayStart, now);
-  const nowMinutes = minutesInto(now, layout.dayStart);
   const gaps = gapsBelow(layout.blocks);
   // One measurement per column render, handed down: every block would otherwise
   // read the root font size for itself.
@@ -367,7 +365,7 @@ function DayColumn({
 
       {placing && <PlacingHighlight placing={placing} dayStart={layout.dayStart} />}
 
-      {today && <NowLine minutes={nowMinutes} />}
+      {today && <NowLine dayStart={layout.dayStart} />}
     </div>
   );
 }
@@ -403,7 +401,11 @@ function PlacingHighlight({ placing, dayStart }: { placing: PlacingSlot; dayStar
  * left edge. It is not interactive and it is not announced — the current time
  * is not news a screen reader needs read to it from a grid.
  */
-function NowLine({ minutes }: { minutes: number }) {
+function NowLine({ dayStart }: { dayStart: number }) {
+  // This is the only minute subscription in the schedule. Its state update
+  // re-renders one 1px rule, not the grid and every block behind it.
+  const now = useNowMinute();
+  const minutes = minutesInto(now, dayStart);
   return (
     <div
       aria-hidden="true"

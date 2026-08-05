@@ -9,7 +9,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useRef, type ReactNode } from 'react';
 import { useOverlay } from './overlay';
-import { OUT } from '../../lib/motion';
+import { keyboardMotionActive, OUT } from '../../lib/motion';
 
 export interface ModalProps {
   open: boolean;
@@ -23,18 +23,29 @@ export interface ModalProps {
 export function Modal({ open, onClose, title, showTitle = true, children }: ModalProps) {
   const panel = useRef<HTMLDivElement>(null);
   useOverlay(open, onClose, panel);
+  const keyboard = keyboardMotionActive();
 
   return (
-    <AnimatePresence>
+    <AnimatePresence custom={keyboard}>
       {open && (
         <div className="fixed inset-0 z-40 flex items-center justify-center px-gutter">
           <motion.div
             className="absolute inset-0 bg-scrim"
             onClick={onClose}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2, ease: OUT }}
+            custom={keyboard}
+            variants={{
+              closed: (instant: boolean) => ({
+                opacity: 0,
+                transition: instant ? { duration: 0 } : { duration: 0.2, ease: OUT },
+              }),
+              open: (instant: boolean) => ({
+                opacity: 1,
+                transition: instant ? { duration: 0 } : { duration: 0.2, ease: OUT },
+              }),
+            }}
+            initial="closed"
+            animate="open"
+            exit="closed"
           />
 
           <motion.div
@@ -51,10 +62,22 @@ export function Modal({ open, onClose, title, showTitle = true, children }: Moda
               borderRadius: 'var(--radius-card)',
               boxShadow: 'var(--shadow-lg)',
             }}
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.22, ease: OUT }}
+            custom={keyboard}
+            variants={{
+              closed: (instant: boolean) => ({
+                opacity: 0,
+                scale: 0.96,
+                transition: instant ? { duration: 0 } : { duration: 0.22, ease: OUT },
+              }),
+              open: (instant: boolean) => ({
+                opacity: 1,
+                scale: 1,
+                transition: instant ? { duration: 0 } : { duration: 0.22, ease: OUT },
+              }),
+            }}
+            initial="closed"
+            animate="open"
+            exit="closed"
           >
             {showTitle && (
               <h2 className="mb-4 text-board-title text-text">{title}</h2>

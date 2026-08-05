@@ -56,7 +56,7 @@ import { UnscheduledList } from '../components/planner/UnscheduledList';
 import { TaskComposer } from '../components/TaskComposer';
 import { Segmented } from '../components/ui/Segmented';
 import { Sheet } from '../components/ui/Sheet';
-import { useNowMinute } from '../lib/clock';
+import { useToday } from '../lib/clock';
 import { formatSlot } from '../lib/dates';
 import {
   scheduleTaskSpec,
@@ -97,7 +97,9 @@ export function Planner() {
   const mutate = useStore((state) => state.mutate);
   const settings = useSettings();
   const wide = usePlannerWide();
-  const now = useNowMinute();
+  // Day-level UI changes at midnight. The minute clock lives inside NowLine so
+  // its tick cannot re-render the Planner, its grid, or its blocks.
+  const now = useToday();
 
   /**
    * The day the view is anchored to. One piece of state for both widths: the

@@ -110,7 +110,7 @@
   }
 
   /* Theme changes ease rather than snapping (§8.2, §8.5). The transition is on
-     the token *consumers* — never on `*`, and never `transition: all`. */
+     the token *consumers* — never on `*`, and never on every property. */
   html,
   body,
   .theme-eased {
@@ -123,6 +123,16 @@
   :focus-visible {
     outline: var(--focus-ring-width) solid var(--accent);
     outline-offset: 2px;
+  }
+
+  /* §8.5: a keyboard action suppresses every CSS transition it causes, even
+     when the changing element is not the element that received the key. The
+     short-lived attribute is maintained by `lib/motion.ts`. */
+  html[data-keyboard-motion='off'] *,
+  html[data-keyboard-motion='off'] *::before,
+  html[data-keyboard-motion='off'] *::after {
+    transition: none !important;
+    scroll-behavior: auto !important;
   }
 
   /* Spinners and shimmers. Linear easing is legal for these two and nowhere
@@ -181,7 +191,7 @@
        at all, the initial 0s duration means this adds nothing. */
     * {
       transition-property:
-        opacity, color, background-color, border-color, box-shadow, fill, stroke !important;
+        opacity, color, background-color, border-color, outline-color, box-shadow, fill, stroke !important;
       scroll-behavior: auto !important;
     }
 
@@ -253,22 +263,6 @@
   @media (hover: hover) and (pointer: fine) {
     .hoverable:hover {
       background-color: color-mix(in srgb, var(--text) 4%, transparent);
-    }
-  }
-
-  /* The hover details card (§8.5): a 120ms fade with a 4px settle from the
-     side it opened on. Under reduced motion the base rule drops the transform
-     and keeps the fade, which is the half that explains what appeared. */
-  .cairn-details {
-    animation: cairn-details-in 120ms var(--ease-out);
-  }
-
-  @keyframes cairn-details-in {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
     }
   }
 

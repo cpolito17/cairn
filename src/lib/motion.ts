@@ -18,6 +18,72 @@ export const OUT = [0.23, 1, 0.32, 1] as const;
 export const DRAWER = [0.32, 0.72, 0, 1] as const;
 
 /**
+ * A keyboard action is a transaction, not just the component that received the
+ * key. A day-square can change the Planner segmented control, a settings radio
+ * can dismiss the sheet around it, and a Blockers checkbox changes nodes and
+ * SVG edges elsewhere in the row. Component-local `event.detail === 0` checks
+ * cannot suppress those downstream animations.
+ *
+ * Keep a short document-level marker around keydown/keyup. CSS transitions use
+ * the data attribute; Motion components read `keyboardMotionActive()` when they
+ * render. Pointer-down clears it immediately, so a pointer action following a
+ * key never inherits the keyboard rule.
+ */
+const KEYBOARD_MOTION_WINDOW_MS = 120;
+
+interface MotionWindow extends Window {
+  __cairnKeyboardMotion?: {
+    installed: boolean;
+    last: number;
+    timer: number | null;
+  };
+}
+
+function keyboardState() {
+  if (typeof window === 'undefined') return null;
+  const scope = window as MotionWindow;
+  if (!scope.__cairnKeyboardMotion) {
+    scope.__cairnKeyboardMotion = {
+      installed: false,
+      last: Number.NEGATIVE_INFINITY,
+      timer: null,
+    };
+  }
+  return scope.__cairnKeyboardMotion;
+}
+
+function installKeyboardMotionTracking(): void {
+  const state = keyboardState();
+  if (state === null || state.installed) return;
+  state.installed = true;
+
+  const clear = () => {
+    state.last = Number.NEGATIVE_INFINITY;
+    if (state.timer !== null) window.clearTimeout(state.timer);
+    state.timer = null;
+    delete document.documentElement.dataset.keyboardMotion;
+  };
+  const mark = () => {
+    state.last = performance.now();
+    document.documentElement.dataset.keyboardMotion = 'off';
+    if (state.timer !== null) window.clearTimeout(state.timer);
+    state.timer = window.setTimeout(clear, KEYBOARD_MOTION_WINDOW_MS);
+  };
+
+  window.addEventListener('keydown', mark, true);
+  window.addEventListener('keyup', mark, true);
+  window.addEventListener('pointerdown', clear, true);
+}
+
+installKeyboardMotionTracking();
+
+/** True during the render caused by a keyboard action. */
+export function keyboardMotionActive(): boolean {
+  const state = keyboardState();
+  return state !== null && performance.now() - state.last <= KEYBOARD_MOTION_WINDOW_MS;
+}
+
+/**
  * Every spring below is written in **stiffness, damping and mass**, derived
  * from the two dials §8.5 actually specifies: damping ratio and response.
  *

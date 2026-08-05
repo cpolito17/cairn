@@ -10,7 +10,7 @@
 
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { DRAWER, SHEET_SPRING } from '../../lib/motion';
+import { DRAWER, keyboardMotionActive, SHEET_SPRING } from '../../lib/motion';
 import { useOverlay } from './overlay';
 
 /** Past this the drag is a dismissal. */
@@ -44,18 +44,29 @@ export interface SheetProps {
 export function Sheet({ open, onClose, title, children }: SheetProps) {
   const panel = useRef<HTMLDivElement>(null);
   useOverlay(open, onClose, panel);
+  const keyboard = keyboardMotionActive();
 
   return (
-    <AnimatePresence>
+    <AnimatePresence custom={keyboard}>
       {open && (
         <div className="fixed inset-0 z-40 flex items-end justify-center">
           <motion.div
             className="absolute inset-0 bg-scrim"
             onClick={onClose}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2, ease: DRAWER }}
+            custom={keyboard}
+            variants={{
+              closed: (instant: boolean) => ({
+                opacity: 0,
+                transition: instant ? { duration: 0 } : { duration: 0.2, ease: DRAWER },
+              }),
+              open: (instant: boolean) => ({
+                opacity: 1,
+                transition: instant ? { duration: 0 } : { duration: 0.2, ease: DRAWER },
+              }),
+            }}
+            initial="closed"
+            animate="open"
+            exit="closed"
           />
 
           <motion.div
@@ -73,15 +84,25 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
               paddingBottom: 'env(safe-area-inset-bottom)',
               boxShadow: 'var(--shadow-lg)',
             }}
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
+            custom={keyboard}
+            variants={{
+              closed: (instant: boolean) => ({
+                y: '100%',
+                transition: instant ? { duration: 0 } : SHEET_SPRING,
+              }),
+              open: (instant: boolean) => ({
+                y: 0,
+                transition: instant ? { duration: 0 } : SHEET_SPRING,
+              }),
+            }}
+            initial="closed"
+            animate="open"
+            exit="closed"
             // §8.5: springs, not durations, for anything touchable mid-flight —
             // and this panel is dragged. A fixed tween cannot take the flick's
             // velocity, so a sheet thrown downward used to stop dead and then
             // restart at a stranger's pace; the spring is continuous with the
             // gesture. Sheet spring is 0.8 damping / 0.3 response.
-            transition={SHEET_SPRING}
             drag="y"
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0, bottom: 0.6 }}
