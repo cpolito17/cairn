@@ -7,5 +7,13 @@
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0B0B0C",
-  "theme_color": "#0B0B0C"
+  "theme_color": "#0B0B0C",
+  "icons": [
+    {
+      "src": "/brand/tasks.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
 }
