@@ -27,9 +27,13 @@ import { midpoint } from '../../shared/order';
 import {
   addDays,
   groupByBoard,
+  heatByDay,
   layoutDays,
+  layoutMonth,
   sortUnscheduled,
   type DayLayout,
+  type HeatDay,
+  type MonthDay,
   type TaskGroup,
 } from '../../shared/planner';
 import { DEFAULT_SETTINGS } from '../../shared/settings';
@@ -510,9 +514,41 @@ export const selectSchedule = memoized((data: Data, key: string): DayLayout[] =>
   const start = Number(firstDay);
   const days = Array.from({ length: Number(dayCount) }, (_, index) => addDays(start, index));
   const mine = context as Context;
-  const theirs: Context = mine === 'personal' ? 'work' : 'personal';
-  return layoutDays(days, tasksInContext(data, mine), tasksInContext(data, theirs));
+  return layoutDays(days, tasksInContext(data, mine), tasksInContext(data, otherContext(mine)));
 });
+
+/** The context whose blocks are ghosts while `context` is on screen. */
+function otherContext(context: Context): Context {
+  return context === 'personal' ? 'work' : 'personal';
+}
+
+/** `context|monthStartMs`, the key the month selector takes. */
+export function monthKey(context: Context, monthStart: number): string {
+  return `${context}|${monthStart}`;
+}
+
+/** The 42 cells of the month grid (§6.5), each with its whole day's entries. */
+export const selectMonth = memoized((data: Data, key: string): MonthDay[] => {
+  const [context, monthStart] = key.split('|');
+  const mine = context as Context;
+  return layoutMonth(
+    Number(monthStart),
+    tasksInContext(data, mine),
+    tasksInContext(data, otherContext(mine)),
+  );
+});
+
+/**
+ * The heat map's per-day totals and names (§6.6).
+ *
+ * Keyed on the context alone, and computed over every scheduled task rather
+ * than over a window: the grid is 371 days wide, the map is sparse, and slicing
+ * it to the visible year would mean recomputing it every time the year nav
+ * moved. One map, memoized until a task changes.
+ */
+export const selectHeat = memoized((data: Data, context: Context): Record<string, HeatDay> =>
+  heatByDay(tasksInContext(data, context), tasksInContext(data, otherContext(context))),
+);
 
 /* --- hooks ----------------------------------------------------------------- */
 
@@ -550,6 +586,14 @@ export const useSchedule = (
   dayCount: number,
 ): DayLayout[] =>
   useStore((state) => selectSchedule(state, scheduleKey(context, firstDay, dayCount)));
+
+/** The month grid's cells, for the month containing `monthStart` (§6.5). */
+export const useMonth = (context: Context, monthStart: number): MonthDay[] =>
+  useStore((state) => selectMonth(state, monthKey(context, monthStart)));
+
+/** Scheduled minutes and current-context tasks per day, keyed `YYYY-MM-DD`. */
+export const useHeat = (context: Context): Record<string, HeatDay> =>
+  useStore((state) => selectHeat(state, context));
 
 export const useBoardProgress = (boardId: string): BoardProgress =>
   useStore((state) => selectBoardProgress(state, boardId));

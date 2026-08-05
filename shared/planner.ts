@@ -1,6 +1,7 @@
 /**
- * The Planner's pure logic: which week you are looking at, what order the
- * unscheduled list is in, and which blocks share a column on a given day.
+ * The Planner's pure logic: which week, month or year you are looking at, what
+ * order the unscheduled list is in, and which blocks share a column on a given
+ * day.
  *
  * Everything the Planner *decides* lives here; the components only draw. That
  * split is load-bearing rather than tidy — a sort written inside a list is a
@@ -11,11 +12,18 @@
  * Geometry proper — snapping, effective duration, lane packing itself — belongs
  * to `shared/schedule.ts` and is called from here rather than re-derived.
  *
- * PROJECT-SPEC-V2.md §6.2, §6.3, §6.4.
+ * PROJECT-SPEC-V2.md §6.2, §6.3, §6.4, §6.5, §6.6.
  */
 
-import { blockOf, endOfLocalDay, packLanes, startOfLocalDay } from './schedule';
-import type { PlannerSort, Task } from './types';
+import {
+  blockOf,
+  endOfLocalDay,
+  localDayKey,
+  packLanes,
+  scheduledMinutesByDay,
+  startOfLocalDay,
+} from './schedule';
+import type { PlannerSort, Settings, Task } from './types';
 import { dueMoment } from './upnext';
 
 /* --- the calendar ---------------------------------------------------------- */
@@ -54,6 +62,73 @@ export function weekDays(at: number): number[] {
 /** True when `at` falls on the same local day as `other`. */
 export function isSameDay(at: number, other: number): boolean {
   return startOfLocalDay(at) === startOfLocalDay(other);
+}
+
+/** Local midnight on the first of the month containing `at`. */
+export function startOfMonth(at: number): number {
+  const day = new Date(at);
+  day.setDate(1);
+  day.setHours(0, 0, 0, 0);
+  return day.getTime();
+}
+
+/**
+ * The first of the month `count` months from the one containing `at`.
+ *
+ * The day is set to the 1st *before* the month is moved, deliberately: `Date`
+ * clamps by overflowing, so stepping forward from the 31st of a 31-day month
+ * lands in the month after the one asked for. Every caller here wants the
+ * month, so the day-of-month never gets the chance to speak.
+ */
+export function addMonths(at: number, count: number): number {
+  const day = new Date(startOfMonth(at));
+  day.setMonth(day.getMonth() + count);
+  day.setHours(0, 0, 0, 0);
+  return day.getTime();
+}
+
+/** True when two moments fall in the same month of the same year. */
+export function isSameMonth(at: number, other: number): boolean {
+  return startOfMonth(at) === startOfMonth(other);
+}
+
+/** Rows in the month grid (§6.5). Always six — see `monthGridDays`. */
+export const WEEKS_PER_MONTH_GRID = 6;
+
+/**
+ * The 42 local midnights the month grid draws: the Sunday on or before the 1st,
+ * then six weeks.
+ *
+ * **Always six rows, never five.** §6.5 asks for a six-by-seven grid, and the
+ * alternative — as many rows as the month needs — would change the grid's
+ * height between February and March, so paging months would move the toolbar
+ * and the cells under the pointer. The leftover days are adjacent-month days,
+ * which the grid already knows how to recess.
+ */
+export function monthGridDays(at: number): number[] {
+  const first = startOfMonth(at);
+  const start = startOfWeek(first);
+  return Array.from({ length: WEEKS_PER_MONTH_GRID * DAYS_PER_WEEK }, (_, index) =>
+    addDays(start, index),
+  );
+}
+
+/** Columns in the year heat map (§6.6). */
+export const WEEKS_PER_YEAR_GRID = 53;
+
+/**
+ * The 53 week starts the heat map draws, oldest first, **ending with the week
+ * containing `at`** — the trailing year, not January to December.
+ *
+ * §6.6 asks for a grid that ends at the current week, which is the same window
+ * a contribution graph draws: the year up to now, so the right-hand edge is
+ * today rather than a December that has not happened yet.
+ */
+export function yearGridWeeks(at: number): number[] {
+  const last = startOfWeek(at);
+  return Array.from({ length: WEEKS_PER_YEAR_GRID }, (_, index) =>
+    addDays(last, (index - (WEEKS_PER_YEAR_GRID - 1)) * DAYS_PER_WEEK),
+  );
 }
 
 /* --- the unscheduled list -------------------------------------------------- */
@@ -220,4 +295,141 @@ export function layoutDays(
   other: readonly Task[],
 ): DayLayout[] {
   return days.map((dayStart) => layoutDay(dayStart, own, other));
+}
+
+/* --- the month grid -------------------------------------------------------- */
+
+/**
+ * One line in a month cell (§6.5): a start time and a name, or — for the other
+ * context — an unlabelled bar.
+ *
+ * Like `PlacedBlock`, a ghost carries no id and therefore no way back to a
+ * name. The month cell is a denser surface than the week grid and the
+ * temptation to "just show what it is" is correspondingly larger, so the value
+ * simply does not contain it.
+ */
+export interface MonthEntry {
+  /** The task's id for the current context's block; absent on a ghost. */
+  taskId: string | null;
+  ghost: boolean;
+  startMs: number;
+}
+
+/** One cell of the month grid. */
+export interface MonthDay {
+  dayStart: number;
+  /** False for the adjacent-month days the six-row grid needs to fill (§6.5). */
+  inMonth: boolean;
+  /** Every entry of the day, in start order. The cell shows the first three. */
+  entries: MonthEntry[];
+}
+
+/**
+ * The month grid: 42 cells, each carrying its whole day in chronological order.
+ *
+ * Entries are **not** truncated here. The cell decides how many lines it has
+ * room for and what the `+N more` line counts — and it has to count the ghosts
+ * it did not name, which it can only do if it was handed them.
+ */
+export function layoutMonth(
+  monthAnchor: number,
+  own: readonly Task[],
+  other: readonly Task[],
+): MonthDay[] {
+  const month = startOfMonth(monthAnchor);
+
+  return monthGridDays(month).map((dayStart) => {
+    // The id every entry sorts by, including the ghosts'. It is a sort key and
+    // nothing else: it never reaches `MonthEntry`, so a ghost stays anonymous.
+    const sorted = [
+      ...scheduledOn(dayStart, own).map((task) => ({ task, ghost: false })),
+      ...scheduledOn(dayStart, other).map((task) => ({ task, ghost: true })),
+    ].sort(
+      (a, b) =>
+        (a.task.scheduledAt as number) - (b.task.scheduledAt as number) ||
+        Number(a.ghost) - Number(b.ghost) ||
+        byId(a.task, b.task),
+    );
+
+    return {
+      dayStart,
+      inMonth: startOfMonth(dayStart) === month,
+      entries: sorted.map(({ task, ghost }) => ({
+        taskId: ghost ? null : task.id,
+        ghost,
+        startMs: task.scheduledAt as number,
+      })),
+    };
+  });
+}
+
+/* --- the year heat map ----------------------------------------------------- */
+
+/** How much of a day is spoken for, and — for the tooltip — by what (§6.6). */
+export interface HeatDay {
+  /** Total scheduled minutes, **both contexts**. A full day is a full day. */
+  minutes: number;
+  /** The current context's tasks that day, in start order. Named in the tooltip. */
+  own: Task[];
+}
+
+/**
+ * The heat map's data, keyed `YYYY-MM-DD`. Days with nothing are absent — the
+ * caller is iterating a calendar, not this map.
+ *
+ * The asymmetry between the two fields is §6.6's, deliberately: both contexts'
+ * blocks fill the square, and only the current context's are named under it.
+ * Totalling one set and listing the other in the same pass is what keeps the
+ * two from drifting apart in a component that forgot one of them.
+ */
+export function heatByDay(own: readonly Task[], other: readonly Task[]): Record<string, HeatDay> {
+  const minutes = scheduledMinutesByDay([...own, ...other]);
+
+  const heat: Record<string, HeatDay> = {};
+  for (const [key, total] of Object.entries(minutes)) heat[key] = { minutes: total, own: [] };
+
+  for (const task of own) {
+    if (task.scheduledAt === null) continue;
+    heat[localDayKey(task.scheduledAt)]?.own.push(task);
+  }
+  for (const day of Object.values(heat)) {
+    day.own.sort((a, b) => (a.scheduledAt as number) - (b.scheduledAt as number) || byId(a, b));
+  }
+  return heat;
+}
+
+/** The length of the configured working day, in minutes (§3.2, §6.8). */
+export function workdayMinutes(settings: Pick<Settings, 'workdayStartMinutes' | 'workdayEndMinutes'>): number {
+  return settings.workdayEndMinutes - settings.workdayStartMinutes;
+}
+
+/**
+ * The five fills of §6.6, as an index: 0 nothing, 1 up to a quarter of a
+ * workday, 2 up to a half, 3 up to three quarters, 4 above that.
+ */
+export type HeatBucket = 0 | 1 | 2 | 3 | 4;
+
+/**
+ * Which bucket a day's scheduled minutes fall in, measured against the length
+ * of the configured working day.
+ *
+ * The comparisons are cross-multiplied rather than written as `minutes /
+ * workday <= 0.25`, so a day at *exactly* a quarter of the workday lands in the
+ * bucket §6.6 names rather than one either side of it. Every quantity here is
+ * an integer number of minutes; the ratio is not, and 0.25 is only exact for
+ * the workday lengths that happen to divide by four.
+ *
+ * "Up to" is inclusive at every step and the top bucket is open: a day above a
+ * full workday is as full as the grid can say, and there is no darker square
+ * to promote it to.
+ */
+export function heatBucket(minutes: number, workday: number): HeatBucket {
+  if (minutes <= 0) return 0;
+  // A workday with no length is not a scale, and dividing by it would make
+  // every scheduled day equally infinite. Anything scheduled is over it.
+  if (workday <= 0) return 4;
+  if (minutes * 4 <= workday) return 1;
+  if (minutes * 2 <= workday) return 2;
+  if (minutes * 4 <= workday * 3) return 3;
+  return 4;
 }

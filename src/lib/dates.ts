@@ -162,6 +162,26 @@ export function formatSlot(scheduledAt: number, now: number): string {
   return `${formatDate(isoDate(scheduledAt), now)} · ${formatTime(hhmm)}`;
 }
 
+/**
+ * "9a", "9:30a", "12p" — the clock in as few characters as a month cell has.
+ *
+ * A month cell at 375px is about 46px wide and the name is the thing in it
+ * worth reading, so the time gives up everything it can: the space before the
+ * meridiem, the meridiem's second letter, and the ":00" of a whole hour. It
+ * keeps the figures, which the global `tabular-nums` rule lines up into a
+ * column down the cell (§8.3).
+ */
+export function formatCompactTime(at: number): string {
+  const date = new Date(at);
+  const hour = date.getHours();
+  const minute = date.getMinutes();
+  const twelve = hour % 12 === 0 ? 12 : hour % 12;
+  const suffix = hour < 12 ? 'a' : 'p';
+  return minute === 0
+    ? `${twelve}${suffix}`
+    : `${twelve}:${String(minute).padStart(2, '0')}${suffix}`;
+}
+
 /** Just the clock part of a block — what a tier-2 Up Next card leads with. */
 export function formatBlockTime(scheduledAt: number): string {
   const at = new Date(scheduledAt);

@@ -1,5 +1,5 @@
 /**
- * The Planner. PROJECT-SPEC-V2.md §6.1–§6.4, §6.8.
+ * The Planner. PROJECT-SPEC-V2.md §6.1–§6.6, §6.8.
  *
  * Two panes on a wide viewport — the unscheduled list at a fixed 300px, the
  * schedule taking the rest — and one pane below the Planner's wide breakpoint,
@@ -8,14 +8,23 @@
  * 375px is not a smaller week view; it is an unusable one.
  *
  * The toolbar carries the Week · Month · Year selector, **Today**,
- * previous/next for the current period, and the period label between them.
- * Month and Year are placeholders in this ticket — they are issue #27 — and
- * they say so rather than rendering an empty frame that looks broken.
+ * previous/next for the current period, and the period label between them. The
+ * period is whatever the view is showing: a week, a month, or the trailing year
+ * the heat map draws, so the same two carets mean "the thing on screen, one
+ * step" in all three.
  *
  * **Nothing here computes anything.** The visible days come from
  * `shared/planner.ts`, the blocks and their lanes come from the store's
  * schedule selector, and the list's order comes from the unscheduled selector.
  * This file owns which period is on screen and nothing else.
+ *
+ * The month grid and the year heat map are **read-and-navigate only** (§11).
+ * Neither takes a drop and neither offers placing mode, which is why `onPlace`
+ * reaches the list only while the week is on screen: an Enter that opened a
+ * placing slot onto a grid nobody can see is a keyboard path into a view that
+ * does not schedule. Clicking a day in either one anchors the week view there
+ * and switches to it, and that click is the disambiguating step a drop onto a
+ * month cell would have needed anyway.
  *
  * Blocks and rows open the composer, drag onto the grid, and resize there — the
  * gesture itself is `components/planner/scheduling.tsx`. What this file owns of
@@ -26,16 +35,25 @@
 
 import { CaretLeft, CaretRight, ListBullets } from '@phosphor-icons/react';
 import { useEffect, useState } from 'react';
-import { addDays, DAYS_PER_WEEK, isSameDay, weekDays } from '../../shared/planner';
+import {
+  addDays,
+  addMonths,
+  DAYS_PER_WEEK,
+  isSameDay,
+  startOfMonth,
+  weekDays,
+  yearGridWeeks,
+} from '../../shared/planner';
 import { effectiveMinutes, startOfLocalDay } from '../../shared/schedule';
 import { SCHEDULE_STEP_MINUTES, type PlannerView, type Task } from '../../shared/types';
 import { DayPager } from '../components/planner/DayPager';
+import { MonthGrid } from '../components/planner/MonthGrid';
+import { YearHeatmap } from '../components/planner/YearHeatmap';
 import { Schedule, type PlacingSlot } from '../components/planner/Schedule';
 import { usePlannerWide } from '../components/planner/scale';
 import { SchedulingProvider } from '../components/planner/scheduling';
 import { UnscheduledList } from '../components/planner/UnscheduledList';
 import { TaskComposer } from '../components/TaskComposer';
-import { EmptyLine } from '../components/ui/Section';
 import { Segmented } from '../components/ui/Segmented';
 import { Sheet } from '../components/ui/Sheet';
 import { useNowMinute } from '../lib/clock';
@@ -199,10 +217,32 @@ export function Planner() {
   // §6.4: the day view pages by day and the strip follows it into the next
   // week; the week view pages by week. In both cases the button moves what is
   // actually on screen, which is the only reading of "previous/next for the
-  // current period" that does not surprise someone at 375px.
-  const step = wide ? DAYS_PER_WEEK : 1;
+  // current period" that does not surprise someone at 375px. Month pages by a
+  // month, and the year's trailing window by a year.
+  function page(direction: number) {
+    if (view === 'week') setAnchor(addDays(anchor, direction * (wide ? DAYS_PER_WEEK : 1)));
+    else setAnchor(addMonths(anchor, direction * (view === 'month' ? 1 : 12)));
+  }
 
-  const label = wide ? weekLabel(days, now) : dayLabel(anchor, now);
+  const label =
+    view === 'month'
+      ? monthLabel(anchor)
+      : view === 'year'
+        ? yearLabel(anchor)
+        : wide
+          ? weekLabel(days, now)
+          : dayLabel(anchor, now);
+
+  /**
+   * §6.5, §6.6: a day clicked in either overview opens the week view at that
+   * day. Both halves matter — the anchor moves *and* the view changes — and
+   * they are one action rather than two, so the week never appears on the week
+   * someone was already looking at rather than the day they just clicked.
+   */
+  function openDay(day: number) {
+    setAnchor(startOfLocalDay(day));
+    if (view !== 'week') setView('week');
+  }
 
   return (
     <SchedulingProvider onDragOut={() => setListOpen(false)}>
@@ -243,36 +283,34 @@ export function Planner() {
               className="w-full sm:w-auto sm:min-w-[15rem]"
             />
 
-            {showsSchedule && (
-              <div className="flex flex-1 items-center justify-end gap-1">
-                <button
-                  type="button"
-                  onClick={() => setAnchor(startOfLocalDay(Date.now()))}
-                  className="pressable rounded-chip px-3 text-meta text-accent"
-                  style={{ minHeight: 'var(--tap-target)', fontWeight: 600 }}
-                >
-                  Today
-                </button>
+            <div className="flex flex-1 items-center justify-end gap-1">
+              <button
+                type="button"
+                onClick={() => setAnchor(startOfLocalDay(Date.now()))}
+                className="pressable rounded-chip px-3 text-meta text-accent"
+                style={{ minHeight: 'var(--tap-target)', fontWeight: 600 }}
+              >
+                Today
+              </button>
 
-                <PeriodButton label="Previous" onClick={() => setAnchor(addDays(anchor, -step))}>
-                  <CaretLeft size={20} />
-                </PeriodButton>
+              <PeriodButton label="Previous" onClick={() => page(-1)}>
+                <CaretLeft size={20} />
+              </PeriodButton>
 
-                {/* Tabular figures come from the global rule in index.css, so a
-                    date that changes width does not shuffle the carets. */}
-                <span
-                  aria-live="polite"
-                  className="min-w-0 truncate px-1 text-row text-text"
-                  style={{ fontWeight: 600 }}
-                >
-                  {label}
-                </span>
+              {/* Tabular figures come from the global rule in index.css, so a
+                  date that changes width does not shuffle the carets. */}
+              <span
+                aria-live="polite"
+                className="min-w-0 truncate px-1 text-row text-text"
+                style={{ fontWeight: 600 }}
+              >
+                {label}
+              </span>
 
-                <PeriodButton label="Next" onClick={() => setAnchor(addDays(anchor, step))}>
-                  <CaretRight size={20} />
-                </PeriodButton>
-              </div>
-            )}
+              <PeriodButton label="Next" onClick={() => page(1)}>
+                <CaretRight size={20} />
+              </PeriodButton>
+            </div>
 
             {!wide && (
               <button
@@ -291,7 +329,7 @@ export function Planner() {
             )}
           </div>
 
-          {view === 'week' ? (
+          {view === 'week' && (
             <Schedule
               context={context}
               // The one place the two widths differ at all: seven columns or
@@ -307,12 +345,20 @@ export function Planner() {
                 )
               }
             />
-          ) : (
-            <EmptyLine>
-              {view === 'month'
-                ? 'The month grid lands in the next issue.'
-                : 'The year heat map lands in the next issue.'}
-            </EmptyLine>
+          )}
+
+          {view === 'month' && (
+            <MonthGrid context={context} month={anchor} now={now} onOpenDay={openDay} />
+          )}
+
+          {view === 'year' && (
+            <YearHeatmap
+              context={context}
+              anchor={anchor}
+              settings={settings}
+              now={now}
+              onOpenDay={openDay}
+            />
           )}
         </section>
       </div>
@@ -394,6 +440,25 @@ function weekLabel(days: number[], now: number): string {
     ? `${last.getDate()}`
     : `${MONTHS[last.getMonth()]} ${last.getDate()}`;
   return `${head} – ${tail}${thisYear ? '' : `, ${first.getFullYear()}`}`;
+}
+
+/** "August 2026" — the month the grid is drawing. */
+function monthLabel(anchor: number): string {
+  const first = new Date(startOfMonth(anchor));
+  return `${MONTHS[first.getMonth()]} ${first.getFullYear()}`;
+}
+
+/**
+ * "Sep 2025 – Aug 2026" — the trailing year the heat map covers, named at both
+ * ends. The grid ends at a week rather than at a December, so a single year
+ * number would be wrong for eleven twelfths of it.
+ */
+function yearLabel(anchor: number): string {
+  const weeks = yearGridWeeks(anchor);
+  const first = new Date(weeks[0]);
+  const last = new Date(weeks[weeks.length - 1]);
+  const short = (date: Date) => `${MONTHS[date.getMonth()].slice(0, 3)} ${date.getFullYear()}`;
+  return `${short(first)} – ${short(last)}`;
 }
 
 /** "Today" reads better than the date for the day you are on. */
