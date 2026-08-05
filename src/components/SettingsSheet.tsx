@@ -7,14 +7,14 @@
  * outright: `Menu`/`MenuItem` stay in the tree for the board header, and this
  * surface stops using them.
  *
- * Sections in the order V2 §4.3 sets: Context · Theme · Working hours ·
- * Archived boards · Log out. The first three are settings, the last two are
- * actions, and the hairline before Archived is where that changes.
+ * Sections: Theme · Working hours · Archived boards · Log out. The first two
+ * are settings, the last two are actions, and the hairline before Archived is
+ * where that changes.
  *
- * **Switching context closes the sheet.** The whole app changes underneath it —
- * a different set of boards, possibly a different palette — and a sheet still
- * sitting over that is a sheet the user has to dismiss before they can see what
- * they just did.
+ * **Context (V2 §4.3's first section) lives in `AppShell.tsx` now**, as the
+ * Personal/Work pill beside the gear rather than a control inside what it
+ * opens — reachable in one tap instead of two, and visible without opening
+ * anything at all.
  */
 
 import { Archive, ArrowCounterClockwise, SignOut } from '@phosphor-icons/react';
@@ -23,17 +23,10 @@ import * as api from '../lib/api';
 import { isDemo, startDemo } from '../lib/demo';
 import { navigate } from '../lib/router';
 import { updateSettingsSpec, useSettings, useStore } from '../lib/store';
-import { CONTEXTS, type Context } from '../../shared/types';
 import { MINUTES_PER_DAY } from '../../shared/settings';
 import { Dialog, DialogHeader } from './ui/Dialog';
-import { Segmented } from './ui/Segmented';
 import { ThemeSelect } from './ThemeSelect';
 import type { Theme } from '../lib/theme';
-
-const CONTEXT_OPTIONS = CONTEXTS.map((value) => ({
-  value,
-  label: value === 'personal' ? 'Personal' : 'Work',
-}));
 
 export interface SettingsSheetProps {
   open: boolean;
@@ -45,8 +38,6 @@ export function SettingsSheet({ open, onClose, onSignedOut }: SettingsSheetProps
   // Read once per render rather than held in state: demo mode is decided before
   // this component ever mounts and cannot change under it.
   const demo = isDemo();
-  const context = useStore((state) => state.context);
-  const setContext = useStore((state) => state.setContext);
   const theme = useStore((state) => state.theme);
   const setTheme = useStore((state) => state.setTheme);
 
@@ -65,19 +56,6 @@ export function SettingsSheet({ open, onClose, onSignedOut }: SettingsSheetProps
   return (
     <Dialog open={open} onClose={onClose} title="Settings">
       <DialogHeader title="Settings" onClose={onClose} />
-
-      <Field label="Context">
-        <Segmented
-          id="context"
-          label="Context"
-          options={CONTEXT_OPTIONS}
-          value={context}
-          onChange={(value: Context) => {
-            setContext(value);
-            onClose();
-          }}
-        />
-      </Field>
 
       <Field label="Theme">
         <ThemeSelect value={theme} onChange={(next: Theme) => setTheme(next)} />

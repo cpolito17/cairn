@@ -423,6 +423,13 @@
   .app-header-actions {
     grid-area: actions;
     justify-self: end;
+    /* The context pill and the gear, side by side — a plain block flow would
+       stack them with no gap between (both render as inline-block buttons by
+       default, but nothing here asked for a row until there were two things
+       to put in one). */
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
   }
 
   @media (min-width: 640px) {

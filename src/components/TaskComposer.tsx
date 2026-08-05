@@ -22,6 +22,7 @@
 import { Flag, Minus, Plus, Prohibit } from '@phosphor-icons/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { addTask } from '../lib/actions';
+import { hasFinePointer } from '../lib/motion';
 import {
   deleteTaskSpec,
   endOfBoard,
@@ -126,15 +127,22 @@ export function TaskComposer({ open, onClose, task, boardId, context }: TaskComp
     setNameError(null);
     setConfirmDiscard(false);
     setConfirmDelete(false);
+
     // Create mode is a typing surface first — land the caret in Name so the
     // first keystroke is a letter, not a shortcut aimed at whatever the
     // overlay's own focus trap picked (the close button, being first in the
-    // header). This runs after that trap does — `useOverlay`'s effect lives
-    // on `Modal`/`Sheet`, a descendant of this component, and effects commit
-    // child-first — so it is the one that wins the field. Edit mode is left
-    // alone: overtyping an existing name by accident on open is the wrong
-    // default there.
-    if (!editing) nameRef.current?.focus();
+    // header). Edit mode is left alone: overtyping an existing name by
+    // accident on open is the wrong default there.
+    if (editing || !hasFinePointer()) return;
+    // Deferred a tick, after the overlay's own focus call and after the sheet
+    // has committed its opening frame — calling this synchronously raced the
+    // sheet's enter transform and dragged the whole page's scroll down to
+    // wherever the field's still-animating position happened to be. On touch
+    // this is skipped entirely: focusing immediately pops the keyboard before
+    // the sheet has settled, which is what produced that race in the first
+    // place, and a tap-to-edit field is the ordinary mobile pattern anyway.
+    const handle = window.setTimeout(() => nameRef.current?.focus(), 0);
+    return () => window.clearTimeout(handle);
   }, [open, initial, editing]);
 
   const dirty = !same(draft, initial);

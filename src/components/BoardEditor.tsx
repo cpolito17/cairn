@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { addBoard } from '../lib/actions';
 import { BOARD_ACCENT_CHOICES, boardAccentColor } from '../lib/boardAccent';
+import { hasFinePointer } from '../lib/motion';
 import { updateBoardSpec, useStore } from '../lib/store';
 import type { Board, BoardAccent, Context } from '../../shared/types';
 import { Button } from './ui/Button';
@@ -51,6 +52,11 @@ export function BoardEditor({
     setDescription(board?.description ?? '');
     setAccent(board?.accent ?? null);
     setError(null);
+    // Touch is left alone — tap to edit, same as the task composer, and for
+    // the same reason: focusing immediately here pops the keyboard before the
+    // sheet has finished its enter transform, and that race is what dragged
+    // the page's scroll off to the wrong place.
+    if (!hasFinePointer()) return;
     const target = focusField === 'description' ? descriptionRef.current : nameRef.current;
     // After the overlay's own focus call, which runs on the same tick.
     const handle = window.setTimeout(() => target?.focus(), 0);

@@ -39,11 +39,13 @@ export interface SheetProps {
   /** Names the dialog for assistive tech; rendered as the sheet's heading. */
   title: string;
   children: ReactNode;
+  /** See `useOverlay`. Default true. */
+  autoFocus?: boolean;
 }
 
-export function Sheet({ open, onClose, title, children }: SheetProps) {
+export function Sheet({ open, onClose, title, children, autoFocus = true }: SheetProps) {
   const panel = useRef<HTMLDivElement>(null);
-  useOverlay(open, onClose, panel);
+  useOverlay(open, onClose, panel, autoFocus);
   const keyboard = keyboardMotionActive();
 
   return (
@@ -119,7 +121,20 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
                 style={{ width: '36px', height: '4px' }}
               />
             </div>
-            <div className="overflow-y-auto px-gutter pb-6" style={{ maxHeight: '80dvh' }}>
+            {/* `touch-action: pan-y` is the actual lock: a taller form (the
+                task or board composer, not the shorter event one, which is
+                why this only ever showed up on those two) means the user is
+                genuinely dragging inside this box, and with no restriction of
+                its own a diagonal swipe here was free to read as a horizontal
+                gesture too — which iOS then handed to the page behind the
+                sheet despite its scroll being "locked" by `useOverlay`
+                (`overflow: hidden` alone does not stop touch panning there).
+                `overflow-x: hidden` backs it up in case anything inside ever
+                overflows this box's width. */}
+            <div
+              className="overflow-y-auto px-gutter pb-6"
+              style={{ maxHeight: '80dvh', touchAction: 'pan-y', overflowX: 'hidden' }}
+            >
               {children}
             </div>
           </motion.div>

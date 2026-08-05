@@ -380,8 +380,25 @@ function DayColumn({
   const draft = useRef<{ pointerId: number; y: number; anchor: number; active: boolean } | null>(null);
   const [creating, setCreating] = useState<{ start: number; minutes: number } | null>(null);
 
+  /**
+   * Mouse (and trackpad, which the DOM also reports as `pointerType:
+   * 'mouse'`) only. §6.7 specifies drag-to-create as a fine-pointer gesture
+   * to begin with, and on touch there is no way to have it both ways: this
+   * column is also the surface the Planner's own vertical scroll happens on,
+   * `setPointerCapture` below claims the touch for the gesture the instant it
+   * starts, and a scroll dragged from anywhere on the grid was silently
+   * becoming a New Task box instead. Not gating this leaves mobile unable to
+   * scroll the Planner at all — worse than not having the gesture there.
+   */
   function createDown(e: React.PointerEvent<HTMLDivElement>) {
-    if (!onCreateSlot || e.button !== 0 || (e.target as HTMLElement).closest('[data-block-id], [data-event-block], .planner-resize')) return;
+    if (
+      !onCreateSlot ||
+      e.button !== 0 ||
+      e.pointerType !== 'mouse' ||
+      (e.target as HTMLElement).closest('[data-block-id], [data-event-block], .planner-resize')
+    ) {
+      return;
+    }
     const rect = e.currentTarget.getBoundingClientRect();
     const minute = Math.max(0, Math.min(1425, Math.floor(((e.clientY - rect.top) / ppm) / 15) * 15));
     draft.current = { pointerId: e.pointerId, y: e.clientY, anchor: minute, active: false };
