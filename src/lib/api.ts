@@ -266,16 +266,20 @@ export async function deleteTask(id: string): Promise<void> {
 export type EventDraft = Omit<PlannerEvent, 'id' | 'createdAt' | 'updatedAt'>;
 export type EventPatch = Partial<Omit<EventDraft, 'context'>>;
 
+// `/api/planner-events`, not the shorter `/api/events` — see the note on
+// `handleEvents` in the Worker. A bare "events" path is a common ad-blocker
+// false positive (it looks like an analytics beacon), and it was getting
+// dropped client-side before ever reaching the server.
 export function createEvent(draft: EventDraft): Promise<PlannerEvent> {
-  return callJson<PlannerEvent>('/api/events', { method: 'POST', body: draft });
+  return callJson<PlannerEvent>('/api/planner-events', { method: 'POST', body: draft });
 }
 
 export function updateEvent(id: string, patch: EventPatch): Promise<PlannerEvent> {
-  return callJson<PlannerEvent>(`/api/events/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch });
+  return callJson<PlannerEvent>(`/api/planner-events/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch });
 }
 
 export async function deleteEvent(id: string): Promise<void> {
-  await call(`/api/events/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  await call(`/api/planner-events/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 /* --- settings -------------------------------------------------------------- */

@@ -61,11 +61,20 @@ async function patch(request: Request, env: Env, id: string): Promise<Response> 
   return event ? json(event) : apiError('event not found', 404);
 }
 
+/**
+ * The route is `/api/planner-events`, not the shorter `/api/events` this
+ * started as. A bare `/events` (or `/api/events`) is exactly the shape a lot
+ * of ad blockers and privacy extensions heuristically treat as an analytics
+ * beacon (Segment, Amplitude, GA, and friends all use one), so it was getting
+ * silently dropped client-side in normal browsing — never reaching the Worker
+ * at all, which is why nothing showed up server-side to debug. The compound,
+ * app-specific path is not a generic-enough shape for a blocklist to guess.
+ */
 export function handleEvents(request: Request, env: Env, pathname: string): Promise<Response> | null {
-  if (pathname === '/api/events') {
+  if (pathname === '/api/planner-events') {
     return request.method === 'POST' ? create(request, env) : Promise.resolve(apiError('Method not allowed', 405));
   }
-  const match = /^\/api\/events\/([^/]+)$/.exec(pathname);
+  const match = /^\/api\/planner-events\/([^/]+)$/.exec(pathname);
   if (!match) return null;
   const id = decodeURIComponent(match[1]);
   if (request.method === 'PATCH') return patch(request, env, id);
