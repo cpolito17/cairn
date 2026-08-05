@@ -1,6 +1,6 @@
 {
-  "name": "cairn",
-  "short_name": "cairn",
+  "name": "tasks",
+  "short_name": "tasks",
   "description": "Boards and tasks.",
   "start_url": "/",
   "scope": "/",
