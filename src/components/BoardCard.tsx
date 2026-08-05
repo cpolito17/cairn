@@ -12,9 +12,18 @@
  * Below the progress bar the card previews the board's next few active tasks,
  * so the home screen answers "what is in here" without a navigation — and each
  * preview row carries its own check-off button, so the commonest action on a
- * task does not require one either. It is a preview and not the board: the rows
- * are in the board's own order and capped, so a 40-task board and a 4-task
- * board stay comparable.
+ * task does not require one either. It is a preview and not the board: the
+ * rows are capped, so a 40-task board and a 4-task board stay comparable.
+ *
+ * **The preview's own order, not the board's.** Priority-flagged tasks sort
+ * first — this is a five-slot glance at "what matters", and a priority task
+ * sitting past the cap because of where it happens to live in the board's own
+ * (manually dragged) order would defeat the point of flagging it at all.
+ * Blocked and gated tasks sort last, ahead of nothing — they are not
+ * actionable right now, so they are the last thing worth the cap's five slots.
+ * Within each group the board's own order holds, because the sort is stable
+ * and ties are never broken. The dragged order is still what the board screen
+ * itself shows; only this five-item glance reads it differently.
  *
  * The card is no longer one big link. It cannot be: a button inside an anchor
  * is invalid and, in practice, unclickable. The header and each task name are
@@ -22,12 +31,13 @@
  */
 
 import { Check, LinkSimple, Plus } from '@phosphor-icons/react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toggleComplete } from '../lib/actions';
 import { prefersReducedMotion } from '../lib/motion';
-import { useActiveTasks, useBlockedBy, useBoardProgress } from '../lib/store';
+import { useActiveTasks, useBlockedBy, useBoardProgress, useStore } from '../lib/store';
 import { TaskDetails } from './TaskDetails';
 import { boardPath, Link } from '../lib/router';
+import { isGated, lookupOf } from '../../shared/dependencies';
 import type { Board, Task } from '../../shared/types';
 import { NumberTicker, ProgressBar } from './ProgressBar';
 import { boardAccentColor } from '../lib/boardAccent';
@@ -48,7 +58,22 @@ export function BoardCard({
 }) {
   const { percent, done, total } = useBoardProgress(board.id);
   const active = useActiveTasks(board.id);
-  const preview = active.slice(0, PREVIEW_LIMIT);
+  const tasks = useStore((state) => state.tasks);
+  const preview = useMemo(() => {
+    const lookup = lookupOf(tasks);
+    // A stable sort, so ties fall back to the board's own order rather than
+    // shuffling on every render — `Array.prototype.sort` has guaranteed that
+    // since ES2019, which is what makes leaving ties alone below safe.
+    return [...active]
+      .sort((a, b) => {
+        const aBlocked = a.blocked || isGated(a, lookup);
+        const bBlocked = b.blocked || isGated(b, lookup);
+        if (aBlocked !== bBlocked) return aBlocked ? 1 : -1;
+        if (a.priority !== b.priority) return a.priority ? -1 : 1;
+        return 0;
+      })
+      .slice(0, PREVIEW_LIMIT);
+  }, [active, tasks]);
   const overflow = active.length - preview.length;
   const to = boardPath(board.id);
   const accent = boardAccentColor(board.accent);

@@ -24,6 +24,17 @@ export interface ChipProps {
   tone?: 'tertiary' | 'secondary' | 'negative' | 'accent';
   /** Completed rows desaturate their whole chip cluster (§6.5). */
   muted?: boolean;
+  /**
+   * Opt in for a chip whose text is not a fixed, short vocabulary (a date, a
+   * duration, "Blocked") but carries something unbounded — a task name, up to
+   * 120 characters (§6.4) — the way "Waiting on {name}" does. The default
+   * `shrink-0` is what keeps a duration chip from being squeezed into
+   * unreadable digits next to its neighbours, but held against unbounded text
+   * it does the opposite of what a `flex-wrap` row is for: the chip refuses to
+   * shrink, so it overflows past the row's edge instead of wrapping onto one
+   * of its own. `wrap` drops that refusal for the one chip that needs to.
+   */
+  wrap?: boolean;
   children?: ReactNode;
   title?: string;
   'aria-label'?: string;
@@ -36,15 +47,19 @@ const TONES = {
   accent: 'text-accent',
 } as const;
 
-export function Chip({ icon, tone = 'secondary', muted = false, children, ...rest }: ChipProps) {
+export function Chip({ icon, tone = 'secondary', muted = false, wrap = false, children, ...rest }: ChipProps) {
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1 text-meta ${TONES[tone]}`}
+      className={`inline-flex items-center gap-1 text-meta ${wrap ? '' : 'shrink-0'} ${TONES[tone]}`}
       // §8.5: the chips crossfade to their completed contrast over ~150ms
       // rather than switching. An opacity fade aids comprehension, so it is one
       // of the things `prefers-reduced-motion` keeps.
       data-motion="essential"
-      style={{ opacity: muted ? 0.55 : 1, transition: 'opacity 150ms var(--ease-out)' }}
+      style={{
+        opacity: muted ? 0.55 : 1,
+        transition: 'opacity 150ms var(--ease-out)',
+        wordBreak: wrap ? 'break-word' : undefined,
+      }}
       {...rest}
     >
       {icon}
