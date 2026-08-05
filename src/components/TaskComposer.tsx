@@ -26,12 +26,13 @@ import {
   deleteTaskSpec,
   endOfBoard,
   selectBoardsFor,
+  unscheduleTaskSpec,
   updateTaskSpec,
   useStore,
 } from '../lib/store';
 import type { TaskPatch } from '../lib/api';
 import { dependencyOptions, lookupOf } from '../../shared/dependencies';
-import { formatDuration } from '../lib/dates';
+import { formatDuration, formatSlot } from '../lib/dates';
 import {
   DURATION_PRESETS,
   MAX_DURATION_MINUTES,
@@ -336,6 +337,7 @@ export function TaskComposer({
             style={{ borderTop: 'var(--hairline-width) solid var(--hairline)' }}
           >
             <MoveToBoard task={task} context={context} onMove={moveTo} />
+            <Unschedule task={task} onDone={onClose} />
             <div className="mt-2">
               <Button
                 variant="destructive"
@@ -637,6 +639,37 @@ function DependsOn({
         ))}
       </select>
     </label>
+  );
+}
+
+/**
+ * "Unschedule" — shown **only when the task has a block** (V2 §6.7), and
+ * reading the slot it is about to clear, so the action is legible before it is
+ * taken rather than after.
+ *
+ * It sits with Move to board rather than with Save: this is not a field of the
+ * task, it is something done to the task, which is what the group below the
+ * hairline is for (§8.4). It writes on its own and closes — there is no draft
+ * state here to reconcile, because scheduling is not a composer field at all
+ * (V2 §2: the composer is for what a task *is*).
+ */
+function Unschedule({ task, onDone }: { task: Task; onDone(): void }) {
+  const [now] = useState(() => Date.now());
+  if (task.scheduledAt === null) return null;
+
+  return (
+    <div className="mt-2">
+      <Button
+        variant="secondary"
+        fullWidth
+        onClick={() => {
+          void useStore.getState().mutate(unscheduleTaskSpec(task));
+          onDone();
+        }}
+      >
+        Unschedule · {formatSlot(task.scheduledAt, now)}
+      </Button>
+    </div>
   );
 }
 

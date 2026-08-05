@@ -27,9 +27,10 @@
  * afternoon.
  */
 
-import { useEffect, useRef, type ReactNode } from 'react';
-import type { DayLayout } from '../../../shared/planner';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { DayLayout, PlacedBlock } from '../../../shared/planner';
 import { isSameDay } from '../../../shared/planner';
+import { startOfLocalDay } from '../../../shared/schedule';
 import type { Context, Settings, Task } from '../../../shared/types';
 import { useNowMinute } from '../../lib/clock';
 import { useSchedule, useStore } from '../../lib/store';
@@ -37,7 +38,8 @@ import { Button } from '../ui/Button';
 import { ErrorLine, loadErrorMessage } from '../ui/Section';
 import { Skeleton } from '../ui/Skeleton';
 import { Block } from './Block';
-import { hourPixels, HOURS_PER_DAY, minutesInto, offsetOf } from './scale';
+import { PreviewSlot, useGridRegistration, type GridRegistration } from './scheduling';
+import { hourPixels, HOURS_PER_DAY, minutePixels, minutesInto, offsetOf } from './scale';
 
 /** The time axis gutter. Wide enough for "12:00 AM" at the meta size. */
 const AXIS_WIDTH = '3.5rem';
@@ -50,22 +52,66 @@ export interface ScheduleProps {
   onOpen(task: Task): void;
   /** The day pager, on narrow viewports. Sits above the columns. */
   pager?: ReactNode;
+  /**
+   * The slot the keyboard is currently proposing (§6.7), or null. Highlighted,
+   * scrolled to, and — because it is keyboard-initiated — never animated.
+   */
+  placing?: PlacingSlot | null | undefined;
 }
 
-export function Schedule({ context, days, settings, onOpen, pager }: ScheduleProps) {
+export interface PlacingSlot {
+  taskId: string;
+  /** Epoch ms of the proposed 15-minute start. */
+  startMs: number;
+  minutes: number;
+  /**
+   * `timeStamp` of the keystroke that opened placing mode.
+   *
+   * Load-bearing, and the reason is one React event ordering: the row's handler
+   * runs at the React root, which is *inside* `window`, so the same keydown goes
+   * on bubbling and reaches the window listener that this very state update just
+   * installed. Without a mark to compare against, one press of Enter both opens
+   * placing mode and commits it, and the task lands wherever the mode happened
+   * to start.
+   */
+  since: number;
+}
+
+export function Schedule({ context, days, settings, onOpen, pager, placing }: ScheduleProps) {
   const status = useStore((state) => state.status);
 
   if (status === 'loading') return <ScheduleSkeleton days={days.length} pager={pager} />;
   if (status === 'error') return <ScheduleError />;
 
-  return <Grid context={context} days={days} settings={settings} onOpen={onOpen} pager={pager} />;
+  return (
+    <Grid
+      context={context}
+      days={days}
+      settings={settings}
+      onOpen={onOpen}
+      pager={pager}
+      placing={placing}
+    />
+  );
 }
 
-function Grid({ context, days, settings, onOpen, pager }: ScheduleProps) {
+function Grid({ context, days, settings, onOpen, pager, placing }: ScheduleProps) {
   const layouts = useSchedule(context, days[0], days.length);
   const tasks = useStore((state) => state.tasks);
   const now = useNowMinute();
-  const scroller = useRef<HTMLDivElement>(null);
+  /**
+   * The gesture needs three things about the grid and reads them itself: the
+   * box that scrolls, the row whose top edge is minute zero, and which days
+   * the columns are. Held in state rather than in a ref so that registering
+   * happens once both elements exist, and again if the week changes.
+   */
+  const [content, setContent] = useState<HTMLDivElement | null>(null);
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
+  const registration = useMemo<GridRegistration | null>(
+    () => (content && box ? { scroller: box, content, days } : null),
+    [content, box, days],
+  );
+  useGridRegistration(registration);
 
   /**
    * §6.3: on mount, scroll to the working-day start — not to midnight, which is
@@ -76,20 +122,39 @@ function Grid({ context, days, settings, onOpen, pager }: ScheduleProps) {
    * re-running it when the working hours change would do the same while they
    * were being adjusted.
    */
+  const scrolled = useRef(false);
   useEffect(() => {
-    const box = scroller.current;
-    if (box === null) return;
+    if (box === null || scrolled.current) return;
+    scrolled.current = true;
     // A little air above the line, so the first working hour does not sit
     // flush against the day headers.
     box.scrollTop = Math.max(0, (settings.workdayStartMinutes / 60) * hourPixels() - 8);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [box]);
+
+  /**
+   * §6.7's keyboard placement, scrolled into view. Instantly — the slot is
+   * moving because an arrow key said so, and §8.5 gives keyboard-initiated
+   * actions no animation, ever. That includes the scroll that follows one.
+   */
+  useEffect(() => {
+    if (box === null || !placing) return;
+    const ppm = minutePixels();
+    const top = ((placing.startMs - startOfLocalDay(placing.startMs)) / 60_000) * ppm;
+    const bottom = top + placing.minutes * ppm;
+    const header = box.querySelector<HTMLElement>('[data-day-header]');
+    const headerHeight = header ? header.getBoundingClientRect().height : 0;
+    const visibleTop = box.scrollTop + headerHeight;
+    const visibleBottom = box.scrollTop + box.clientHeight;
+    if (top < visibleTop) box.scrollTop = Math.max(0, top - headerHeight - 8);
+    else if (bottom > visibleBottom) box.scrollTop = bottom - box.clientHeight + 8;
+  }, [box, placing]);
 
   return (
     <div className="mt-4">
       {pager}
       <div
-        ref={scroller}
+        ref={setBox}
         className="planner-scroll relative overflow-y-auto overflow-x-hidden rounded-card
                    bg-bg"
         style={{
@@ -102,14 +167,21 @@ function Grid({ context, days, settings, onOpen, pager }: ScheduleProps) {
       >
         {/* The day headers scroll horizontally with nothing and vertically with
             nothing: they are the fixed reference the columns are read against. */}
-        <div className="sticky top-0 z-20 flex bg-bg" style={{ boxShadow: '0 1px 0 var(--hairline)' }}>
+        <div
+          data-day-header=""
+          className="sticky top-0 z-20 flex bg-bg"
+          style={{ boxShadow: '0 1px 0 var(--hairline)' }}
+        >
           <div style={{ width: AXIS_WIDTH, flexShrink: 0 }} />
           {days.map((day) => (
             <DayHeader key={day} day={day} now={now} single={days.length === 1} />
           ))}
         </div>
 
-        <div className="flex" style={{ height: offsetOf(HOURS_PER_DAY * 60) }}>
+        {/* `relative`, because the previewed slot is positioned against this
+            row: minute zero is its top edge, which is the one reference both
+            the columns and the gesture already agree on. */}
+        <div className="relative flex" ref={setContent} style={{ height: offsetOf(HOURS_PER_DAY * 60) }}>
           <TimeAxis />
           {layouts.map((layout) => (
             <DayColumn
@@ -119,8 +191,10 @@ function Grid({ context, days, settings, onOpen, pager }: ScheduleProps) {
               settings={settings}
               now={now}
               onOpen={onOpen}
+              placing={placing && isSameDay(placing.startMs, layout.dayStart) ? placing : null}
             />
           ))}
+          <PreviewSlot />
         </div>
       </div>
     </div>
@@ -194,24 +268,58 @@ function hourLabel(hour: number): string {
   return `${twelve} ${suffix}`;
 }
 
+/**
+ * Minutes of empty column below each block *in its own lane*, keyed by the
+ * block's position in the layout. The resize handle reaches into that gap, so
+ * it has to know how much of one there is: a block with another directly under
+ * it gives up nothing, and takes its whole target out of its own height.
+ */
+function gapsBelow(blocks: PlacedBlock[]): number[] {
+  return blocks.map((block) => {
+    const end = block.startMs + block.minutes * 60_000;
+    let next = Infinity;
+    for (const other of blocks) {
+      if (other === block || other.lane !== block.lane) continue;
+      if (other.startMs >= end && other.startMs < next) next = other.startMs;
+    }
+    const dayEnd = layoutDayEnd(block.startMs);
+    return (Math.min(next, dayEnd) - end) / 60_000;
+  });
+}
+
+/** Local midnight after the day containing `at`, without a Date round trip. */
+function layoutDayEnd(at: number): number {
+  const date = new Date(at);
+  date.setHours(24, 0, 0, 0);
+  return date.getTime();
+}
+
 function DayColumn({
   layout,
   tasks,
   settings,
   now,
   onOpen,
+  placing,
 }: {
   layout: DayLayout;
   tasks: Record<string, Task>;
   settings: Settings;
   now: number;
   onOpen(task: Task): void;
+  placing: PlacingSlot | null;
 }) {
   const today = isSameDay(layout.dayStart, now);
   const nowMinutes = minutesInto(now, layout.dayStart);
+  const gaps = gapsBelow(layout.blocks);
+  // One measurement per column render, handed down: every block would otherwise
+  // read the root font size for itself.
+  const ppm = minutePixels();
 
   return (
     <div
+      data-day-column=""
+      data-day-start={layout.dayStart}
       className="relative min-w-0 flex-1 bg-bg"
       style={{ borderLeft: 'var(--hairline-width) solid var(--hairline)' }}
     >
@@ -245,18 +353,48 @@ function DayColumn({
         }}
       />
 
-      {layout.blocks.map((block) => (
+      {layout.blocks.map((block, index) => (
         <Block
           key={block.ghost ? `ghost:${block.startMs}:${block.lane}` : (block.taskId as string)}
           block={block}
           dayStart={layout.dayStart}
           task={block.taskId === null ? undefined : tasks[block.taskId]}
+          gapBelow={gaps[index]}
+          pixelsPerMinute={ppm}
           onOpen={onOpen}
         />
       ))}
 
+      {placing && <PlacingHighlight placing={placing} dayStart={layout.dayStart} />}
+
       {today && <NowLine minutes={nowMinutes} />}
     </div>
+  );
+}
+
+/**
+ * The slot the keyboard is proposing (§6.7). A solid accent outline over an
+ * accent tint — the same language the previewed drop slot speaks, at full
+ * strength, because this one is not a guess about where a finger is going.
+ *
+ * It animates nothing. Not a transition, not a spring, not an entrance: §8.5
+ * gives keyboard-initiated actions no animation, and a highlight that eased
+ * between slots as the arrows moved it would be exactly that.
+ */
+function PlacingHighlight({ placing, dayStart }: { placing: PlacingSlot; dayStart: number }) {
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute z-10 rounded-chip"
+      style={{
+        top: offsetOf(minutesInto(placing.startMs, dayStart)),
+        height: offsetOf(placing.minutes),
+        left: '2px',
+        right: '2px',
+        background: 'var(--accent-tint)',
+        border: '2px solid var(--accent)',
+      }}
+    />
   );
 }
 

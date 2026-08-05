@@ -37,6 +37,12 @@ import {
   useUnscheduled,
   useUnscheduledGroups,
 } from '../../lib/store';
+import {
+  useDragHandlers,
+  useIsDragging,
+  useListRegistration,
+  useOverList,
+} from './scheduling';
 import { Button } from '../ui/Button';
 import { Chip } from '../ui/Chip';
 import { EmptyLine, ErrorLine, loadErrorMessage } from '../ui/Section';
@@ -53,28 +59,58 @@ export interface UnscheduledListProps {
   context: Context;
   settings: Settings;
   onOpen(task: Task): void;
+  /** Enter on a focused row: the keyboard route onto the grid (§6.7). */
+  onPlace?: ((task: Task, since: number) => void) | undefined;
 }
 
-export function UnscheduledList({ context, settings, onOpen }: UnscheduledListProps) {
+export function UnscheduledList({ context, settings, onOpen, onPlace }: UnscheduledListProps) {
   const status = useStore((state) => state.status);
   const tasks = useUnscheduled(context, settings.plannerSort);
   const groups = useUnscheduledGroups(context, settings.plannerSort);
+  // The list is a drop target as well as a source: a block dragged back onto it
+  // is unscheduled (§6.7).
+  const registerList = useListRegistration();
+  const overList = useOverList();
+  const hintId = useId();
 
   return (
     <div className="flex min-h-0 flex-col">
       <Controls settings={settings} count={status === 'ready' ? tasks.length : null} />
 
-      {status === 'loading' ? (
-        <ListSkeleton />
-      ) : status === 'error' ? (
-        <ListError />
-      ) : tasks.length === 0 ? (
-        <EmptyLine>Everything is scheduled.</EmptyLine>
-      ) : settings.plannerGroupByBoard ? (
-        <Grouped groups={groups} onOpen={onOpen} />
-      ) : (
-        <Rows tasks={tasks} onOpen={onOpen} offset={0} />
-      )}
+      <div
+        ref={registerList}
+        data-unscheduled-drop=""
+        className="relative min-h-0"
+        style={{
+          // The refusal-and-acceptance boundary §8.5 asks for, as opacity on a
+          // ring that is always there. A block over the list will be unscheduled
+          // by letting go, and that has to be visible before it is done.
+          outline: overList ? '2px solid var(--accent)' : '2px solid transparent',
+          outlineOffset: '6px',
+          borderRadius: 'var(--radius-control)',
+          transition: 'outline-color 150ms var(--ease-out)',
+        }}
+      >
+        {status === 'loading' ? (
+          <ListSkeleton />
+        ) : status === 'error' ? (
+          <ListError />
+        ) : tasks.length === 0 ? (
+          <EmptyLine>Everything is scheduled.</EmptyLine>
+        ) : settings.plannerGroupByBoard ? (
+          <Grouped groups={groups} onOpen={onOpen} onPlace={onPlace} hintId={hintId} />
+        ) : (
+          <Rows tasks={tasks} onOpen={onOpen} onPlace={onPlace} offset={0} hintId={hintId} />
+        )}
+
+        {/* Named by every row, so the two keys are discoverable rather than
+            folklore. Visually hidden — the rows are already dense. */}
+        {onPlace && (
+          <p id={hintId} className="sr-only">
+            Press Enter to schedule this task on the grid. Press Space to edit it.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -158,7 +194,17 @@ function Controls({ settings, count }: { settings: Settings; count: number | nul
   );
 }
 
-function Grouped({ groups, onOpen }: { groups: TaskGroup[]; onOpen(task: Task): void }) {
+function Grouped({
+  groups,
+  onOpen,
+  onPlace,
+  hintId,
+}: {
+  groups: TaskGroup[];
+  onOpen(task: Task): void;
+  onPlace?: ((task: Task, since: number) => void) | undefined;
+  hintId: string;
+}) {
   let offset = 0;
   return (
     <>
@@ -174,7 +220,13 @@ function Grouped({ groups, onOpen }: { groups: TaskGroup[]; onOpen(task: Task): 
             >
               {group.boardName}
             </h3>
-            <Rows tasks={group.tasks} onOpen={onOpen} offset={start} />
+            <Rows
+              tasks={group.tasks}
+              onOpen={onOpen}
+              onPlace={onPlace}
+              offset={start}
+              hintId={hintId}
+            />
           </section>
         );
       })}
@@ -185,17 +237,27 @@ function Grouped({ groups, onOpen }: { groups: TaskGroup[]; onOpen(task: Task): 
 function Rows({
   tasks,
   onOpen,
+  onPlace,
   offset,
+  hintId,
 }: {
   tasks: Task[];
   onOpen(task: Task): void;
+  onPlace?: ((task: Task, since: number) => void) | undefined;
   offset: number;
+  hintId: string;
 }) {
   return (
     <ul className="flex flex-col gap-1">
       {tasks.map((task, index) => (
         <li key={task.id}>
-          <UnscheduledRow task={task} index={offset + index} onOpen={onOpen} />
+          <UnscheduledRow
+            task={task}
+            index={offset + index}
+            onOpen={onOpen}
+            onPlace={onPlace}
+            hintId={hintId}
+          />
         </li>
       ))}
     </ul>
@@ -212,34 +274,77 @@ function Rows({
  * because a task was unscheduled arrives without an entrance, which is right —
  * the stagger says "this surface just arrived" and would be a lie the second
  * time.
+ *
+ * The row is also the drag source and the keyboard's entry point (§6.7). Enter
+ * enters placing mode and Space opens the composer — the two things a focused
+ * row can mean, and the grid is the one this screen exists for, so it gets the
+ * key people press first. A pointer still opens the composer with a plain
+ * click; nothing about the mouse is changed by any of this.
  */
 function UnscheduledRow({
   task,
   index,
   onOpen,
+  onPlace,
+  hintId,
 }: {
   task: Task;
   index: number;
   onOpen(task: Task): void;
+  onPlace?: ((task: Task, since: number) => void) | undefined;
+  hintId: string;
 }) {
   const waiting = useBlockedBy(task.id);
   const recessed = waiting !== null || task.blocked;
   const [now] = useState(() => Date.now());
   const [cold] = useState(() => claimColdLoad(`planner-row:${task.id}`));
   const due = formatDue(task, now);
+  const dragging = useIsDragging(task.id);
+  const handlers = useDragHandlers(task, 'create');
+
+  // Motion is present for the cold-load stagger and for nothing else. A row
+  // that arrives later — because a drag came back, or because a keyboard Delete
+  // unscheduled its task — is a plain element with no animation attached at
+  // all, rather than a `motion.div` asked not to animate: §8.5 gives
+  // keyboard-initiated actions none, and "none" is more reliably spelled by
+  // there being nothing there than by a flag on something that could.
+  const Row = cold ? motion.div : 'div';
 
   return (
-    <motion.div
-      initial={cold ? { opacity: 0, y: 8 } : false}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.24, ease: OUT, delay: cold ? staggerDelay(index) : 0 }}
+    <Row
+      {...(cold
+        ? {
+            initial: { opacity: 0, y: 8 },
+            animate: { opacity: 1, y: 0 },
+            transition: { duration: 0.24, ease: OUT, delay: staggerDelay(index) },
+          }
+        : {})}
     >
       <button
         type="button"
+        data-unscheduled-row={task.id}
         onClick={() => onOpen(task)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' || !onPlace) return;
+          event.preventDefault();
+          onPlace(task, event.timeStamp);
+        }}
+        {...handlers}
+        aria-describedby={onPlace ? hintId : undefined}
+        aria-keyshortcuts={onPlace ? 'Enter' : undefined}
         className="hoverable pressable flex w-full flex-col items-start gap-1 rounded-control
                    px-3 py-2 text-left"
-        style={{ minHeight: 'var(--tap-target)' }}
+        style={{
+          minHeight: 'var(--tap-target)',
+          // The proxy has it; this is where it came from. Left in place rather
+          // than removed, so the list does not close up under a drag that may
+          // still come back to it.
+          opacity: dragging ? 0.35 : 1,
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          WebkitTouchCallout: 'none',
+          touchAction: 'pan-y',
+        }}
       >
         <span
           className="w-full text-row"
@@ -274,7 +379,7 @@ function UnscheduledRow({
           )}
         </span>
       </button>
-    </motion.div>
+    </Row>
   );
 }
 
