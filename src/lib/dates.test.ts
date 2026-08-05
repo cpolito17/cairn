@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   daysUntil,
+  formatCompactTime,
   dueAt,
   formatDate,
   formatDue,
@@ -119,5 +120,22 @@ describe('formatDuration', () => {
     expect(formatDuration(240)).toBe('4h');
     expect(formatDuration(105)).toBe('1h 45m');
     expect(formatDuration(720)).toBe('12h');
+  });
+});
+
+describe('formatCompactTime', () => {
+  const at = (hour: number, minute = 0) =>
+    new Date(2026, 7, 3, hour, minute, 0, 0).getTime();
+
+  it('drops everything a month cell has no room for', () => {
+    expect(formatCompactTime(at(9))).toBe('9a');
+    expect(formatCompactTime(at(9, 30))).toBe('9:30a');
+    expect(formatCompactTime(at(14))).toBe('2p');
+    expect(formatCompactTime(at(14, 15))).toBe('2:15p');
+  });
+
+  it('reads noon and midnight as twelve, not as zero', () => {
+    expect(formatCompactTime(at(12))).toBe('12p');
+    expect(formatCompactTime(at(0, 30))).toBe('12:30a');
   });
 });

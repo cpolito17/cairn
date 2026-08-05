@@ -440,6 +440,42 @@
     -webkit-overflow-scrolling: touch;
   }
 
+  /* A month cell (V2 §6.5). Tall enough for a date and three one-line entries
+     at the meta size, and expressed in rem so a larger text size grows the cell
+     with the text rather than clipping the third entry. It never grows past its
+     minimum: the entries are capped at three and the overflow line is one, so
+     the cell's content has a ceiling and a fixed row keeps the six weeks the
+     same height whatever month is on screen. */
+  .planner-month-cell {
+    min-height: 5.25rem;
+  }
+
+  @media (min-width: 640px) {
+    .planner-month-cell {
+      min-height: 6.5rem;
+    }
+  }
+
+  /* The year grid's own scroll box (V2 §6.6). It scrolls sideways; the page
+     never does. `overscroll-behavior-x: contain` keeps a flick at either end
+     from becoming the browser's back-swipe on iOS. */
+  .planner-year-scroll {
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* §8.5 gates every hover affordance. A heat square lifts its contrast rather
+     than its geometry — the fill is the datum and nothing may nudge it. */
+  @media (hover: hover) and (pointer: fine) {
+    .planner-heat-square:hover {
+      opacity: 0.75;
+    }
+  }
+
+  .planner-heat-square {
+    transition: opacity 120ms var(--ease-out);
+  }
+
   /* §8.4 skeleton shimmer: a band travelling across the block by transform. */
   .cairn-shimmer {
     position: absolute;
