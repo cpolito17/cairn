@@ -33,6 +33,8 @@ export function ContextHome() {
   const [creating, setCreating] = useState(false);
   const [editingBoard, setEditingBoard] = useState<Board | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  /** The board a card's own "+" opened the composer for — create mode, no task. */
+  const [addingTaskTo, setAddingTaskTo] = useState<Board | null>(null);
 
   if (status === 'loading') return <HomeSkeleton />;
   if (status === 'error') return <HomeError />;
@@ -95,6 +97,7 @@ export function ContextHome() {
                 board={board}
                 onEditBoard={() => setEditingBoard(board)}
                 onEditTask={setEditingTask}
+                onAddTask={() => setAddingTaskTo(board)}
               />
             </StaggeredCard>
           )}
@@ -117,6 +120,15 @@ export function ContextHome() {
           onClose={() => setEditingTask(null)}
           task={editingTask}
           boardId={editingTask.boardId}
+          context={context}
+        />
+      )}
+
+      {addingTaskTo && (
+        <TaskComposer
+          open
+          onClose={() => setAddingTaskTo(null)}
+          boardId={addingTaskTo.id}
           context={context}
         />
       )}
