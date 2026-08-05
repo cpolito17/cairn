@@ -126,7 +126,16 @@ export function TaskComposer({ open, onClose, task, boardId, context }: TaskComp
     setNameError(null);
     setConfirmDiscard(false);
     setConfirmDelete(false);
-  }, [open, initial]);
+    // Create mode is a typing surface first — land the caret in Name so the
+    // first keystroke is a letter, not a shortcut aimed at whatever the
+    // overlay's own focus trap picked (the close button, being first in the
+    // header). This runs after that trap does — `useOverlay`'s effect lives
+    // on `Modal`/`Sheet`, a descendant of this component, and effects commit
+    // child-first — so it is the one that wins the field. Edit mode is left
+    // alone: overtyping an existing name by accident on open is the wrong
+    // default there.
+    if (!editing) nameRef.current?.focus();
+  }, [open, initial, editing]);
 
   const dirty = !same(draft, initial);
   const nested = confirmDiscard || confirmDelete;
