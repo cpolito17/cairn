@@ -272,6 +272,57 @@
     }
   }
 
+  /* Blockers rows bleed through the screen gutter, but only their own inner
+     scroller may overflow horizontally. Using the containing main width rather
+     than 100vw avoids the desktop scrollbar-width overflow trap. */
+  .blockers-bleed {
+    width: calc(100% + var(--gutter) + var(--gutter));
+    margin-inline: calc(var(--gutter) * -1);
+  }
+
+  .blockers-board-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .blockers-board-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* The label and compact standalone well stay at the row's left edge while
+     its tree moves underneath. The solid background is what keeps an edge from
+     becoming visible through the sticky column. */
+  .blockers-sidebar {
+    position: sticky;
+    left: 0;
+    width: 220px;
+    background-color: var(--bg);
+    box-shadow: 12px 0 18px color-mix(in srgb, var(--bg) 78%, transparent);
+  }
+
+  /* The details affordance gets a quiet contrast lift only where hover is real.
+     Touch has the separate long-press path in TaskDetails. */
+  @media (hover: hover) and (pointer: fine) {
+    .blocker-node-open:hover {
+      background-color: color-mix(in srgb, var(--text) 4%, transparent);
+    }
+  }
+
+  .blocker-node-open {
+    transition:
+      transform 160ms var(--ease-out),
+      background-color 160ms var(--ease-out);
+  }
+
+  @media (max-width: 480px) {
+    .blockers-sidebar {
+      width: 168px;
+    }
+  }
+
   /* Up Next bleeds off the right edge to signal scrollability (§6.7); the
      scrollbar itself would draw a line under the cards and undo that. */
   .edge-scroll {

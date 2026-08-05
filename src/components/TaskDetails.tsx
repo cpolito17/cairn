@@ -10,10 +10,9 @@
  * Three decisions worth stating.
  *
  * **Hover and focus, never tap.** §8.5 gates hover effects behind a fine
- * pointer, and this is one: on a touch device the card never opens, which is
- * correct because tapping opens the composer and the composer holds all of the
- * same fields. Nothing lives only here. Keyboard focus opens it too, so it is
- * not mouse-only.
+ * pointer. Keyboard focus opens it too, so it is not mouse-only. Blockers opts
+ * into a third deliberate gesture: a touch long-press. Its synthesized click
+ * is suppressed so reading details never also opens the composer.
  *
  * **Portalled, and positioned in viewport coordinates.** The triggers sit
  * inside a horizontally scrolling strip and inside cards that carry motion
@@ -32,7 +31,13 @@ import {
   Prohibit,
   Timer,
 } from '@phosphor-icons/react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { formatDue, formatDuration, formatOverdue } from '../lib/dates';
 import { useBlockedBy } from '../lib/store';
@@ -44,6 +49,10 @@ const CARD_WIDTH = 260;
 /** Gap between the trigger and the card, and the margin kept off each edge. */
 const OFFSET = 8;
 const MARGIN = 8;
+const HOVER_QUERY = '(hover: hover) and (pointer: fine)';
+const LONG_PRESS_MS = 420;
+const LONG_PRESS_SLOP = 10;
+const TOUCH_DETAIL_MS = 2400;
 
 interface Placement {
   left: number;
@@ -57,16 +66,25 @@ export interface TaskDetailsProps {
   children: ReactNode;
   /** Applied to the wrapper, which is otherwise layout-neutral. */
   className?: string;
+  /** Blockers nodes expose the same details on a deliberate touch hold. */
+  touchLongPress?: boolean;
 }
 
-export function TaskDetails({ task, children, className }: TaskDetailsProps) {
+export function TaskDetails({ task, children, className, touchLongPress = false }: TaskDetailsProps) {
   const anchor = useRef<HTMLSpanElement>(null);
   const timer = useRef<number | null>(null);
+  const longPressTimer = useRef<number | null>(null);
+  const touchCloseTimer = useRef<number | null>(null);
+  const touchOrigin = useRef<{ x: number; y: number } | null>(null);
+  const ignoreTouchFocus = useRef(false);
+  const longPressFired = useRef(false);
   const [placement, setPlacement] = useState<Placement | null>(null);
 
   useEffect(() => {
     return () => {
       if (timer.current !== null) window.clearTimeout(timer.current);
+      if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current);
+      if (touchCloseTimer.current !== null) window.clearTimeout(touchCloseTimer.current);
     };
   }, []);
 
@@ -101,17 +119,77 @@ export function TaskDetails({ task, children, className }: TaskDetailsProps) {
     setPlacement(null);
   }
 
+  function cancelLongPress() {
+    if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+    touchOrigin.current = null;
+  }
+
+  function beginLongPress(event: ReactPointerEvent<HTMLSpanElement>) {
+    if (!touchLongPress || event.pointerType !== 'touch') return;
+    if ((event.target as Element).closest('[data-no-details]')) return;
+
+    cancelLongPress();
+    ignoreTouchFocus.current = true;
+    longPressFired.current = false;
+    touchOrigin.current = { x: event.clientX, y: event.clientY };
+    longPressTimer.current = window.setTimeout(() => {
+      longPressTimer.current = null;
+      longPressFired.current = true;
+      place();
+      if (touchCloseTimer.current !== null) window.clearTimeout(touchCloseTimer.current);
+      touchCloseTimer.current = window.setTimeout(close, TOUCH_DETAIL_MS);
+    }, LONG_PRESS_MS);
+  }
+
+  function moveLongPress(event: ReactPointerEvent<HTMLSpanElement>) {
+    const origin = touchOrigin.current;
+    if (!origin || event.pointerType !== 'touch') return;
+    if (
+      Math.abs(event.clientX - origin.x) > LONG_PRESS_SLOP ||
+      Math.abs(event.clientY - origin.y) > LONG_PRESS_SLOP
+    ) {
+      cancelLongPress();
+    }
+  }
+
+  function endLongPress() {
+    cancelLongPress();
+    // A synthesized click follows pointer-up. Keep the touch-focus gate alive
+    // through that turn, then return to ordinary keyboard focus behavior.
+    window.setTimeout(() => {
+      ignoreTouchFocus.current = false;
+    }, 0);
+  }
+
   return (
     <span
       ref={anchor}
       className={className}
       onPointerEnter={(event) => {
-        // The gate §8.5 asks for. A touch reports `pointerType: 'touch'` and is
-        // ignored; only a real hover opens the card.
-        if (event.pointerType === 'mouse') open();
+        if (event.pointerType === 'mouse' && window.matchMedia(HOVER_QUERY).matches) open();
       }}
-      onPointerLeave={close}
-      onFocusCapture={place}
+      onPointerLeave={(event) => {
+        if (event.pointerType === 'mouse') close();
+        else cancelLongPress();
+      }}
+      onPointerDown={beginLongPress}
+      onPointerMove={moveLongPress}
+      onPointerUp={endLongPress}
+      onPointerCancel={endLongPress}
+      onClickCapture={(event) => {
+        if (!longPressFired.current) return;
+        // A long press is the details gesture, not a delayed node activation.
+        event.preventDefault();
+        event.stopPropagation();
+        longPressFired.current = false;
+      }}
+      onContextMenu={(event) => {
+        if (touchLongPress && ignoreTouchFocus.current) event.preventDefault();
+      }}
+      onFocusCapture={() => {
+        if (!ignoreTouchFocus.current) place();
+      }}
       onBlurCapture={close}
     >
       {children}
