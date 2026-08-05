@@ -42,9 +42,12 @@ export interface DialogHeaderProps {
   title: string;
   /** The explicit close, top-left (§9.5). Omitted where cancel does the job. */
   onClose?(): void;
+  /** Optional trailing content at the header's right edge — e.g. a compact
+   *  selector, for the one composer that needs to choose what it is creating. */
+  right?: ReactNode;
 }
 
-export function DialogHeader({ title, onClose }: DialogHeaderProps) {
+export function DialogHeader({ title, onClose, right }: DialogHeaderProps) {
   return (
     <div className="mb-4 flex items-center gap-2 pt-2">
       {onClose && (
@@ -60,6 +63,7 @@ export function DialogHeader({ title, onClose }: DialogHeaderProps) {
         </button>
       )}
       <h2 className="min-w-0 flex-1 truncate text-board-title text-text">{title}</h2>
+      {right}
     </div>
   );
 }

@@ -71,13 +71,13 @@ interface Draft {
   dependsOn: string;
 }
 
-function draftOf(task: Task | undefined, prefill: string, initialDuration: number | null): Draft {
+function draftOf(task: Task | undefined): Draft {
   return {
-    name: task?.name ?? prefill,
+    name: task?.name ?? '',
     notes: task?.notes ?? '',
     dueDate: task?.dueDate ?? '',
     dueTime: task?.dueTime ?? '',
-    durationMinutes: task?.durationMinutes ?? initialDuration,
+    durationMinutes: task?.durationMinutes ?? null,
     difficulty: task?.difficulty ?? null,
     priority: task?.priority ?? false,
     blocked: task?.blocked ?? false,
@@ -107,29 +107,11 @@ export interface TaskComposerProps {
   /** Create mode: the board the task lands on. */
   boardId: string;
   context: Context;
-  /** Create mode: whatever quick add had typed when it was expanded. */
-  prefillName?: string;
-  /** Planner-created tasks may choose their board in the composer. */
-  chooseBoard?: boolean;
-  initialScheduledAt?: number | null;
-  initialDurationMinutes?: number | null;
 }
 
-export function TaskComposer({
-  open,
-  onClose,
-  task,
-  boardId,
-  context,
-  prefillName = '',
-  chooseBoard = false,
-  initialScheduledAt = null,
-  initialDurationMinutes = null,
-}: TaskComposerProps) {
+export function TaskComposer({ open, onClose, task, boardId, context }: TaskComposerProps) {
   const editing = task !== undefined;
-  const boards = useStore((state) => selectBoardsFor(state, context));
-  const [targetBoardId, setTargetBoardId] = useState(boardId);
-  const initial = useMemo(() => draftOf(task, prefillName, initialDurationMinutes), [task, prefillName, initialDurationMinutes]);
+  const initial = useMemo(() => draftOf(task), [task]);
   const [draft, setDraft] = useState<Draft>(initial);
   const [nameError, setNameError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -144,8 +126,7 @@ export function TaskComposer({
     setNameError(null);
     setConfirmDiscard(false);
     setConfirmDelete(false);
-    setTargetBoardId(boardId || boards[0]?.id || '');
-  }, [open, initial, boardId, boards]);
+  }, [open, initial]);
 
   const dirty = !same(draft, initial);
   const nested = confirmDiscard || confirmDelete;
@@ -196,18 +177,18 @@ export function TaskComposer({
         void useStore.getState().mutate(updateTaskSpec(task, body));
       }
     } else {
-      if (!targetBoardId) {
+      if (!boardId) {
         setNameError('Create a board before adding a task.');
         return;
       }
       addTask({
-        boardId: targetBoardId,
+        boardId,
         name,
         notes: draft.notes.trim() || null,
         dueDate: draft.dueDate || null,
         dueTime: draft.dueTime || null,
         durationMinutes: draft.durationMinutes,
-        scheduledAt: initialScheduledAt,
+        scheduledAt: null,
         difficulty: draft.difficulty,
         priority: draft.priority,
         blocked: draft.blocked,
@@ -249,22 +230,6 @@ export function TaskComposer({
             }}
             onBlur={() => setNameError(draft.name.trim() === '' ? 'A task needs a name.' : null)}
           />
-
-          {!editing && chooseBoard && (
-            <Field>
-              <label className="mb-1 block text-text-secondary" style={{ fontSize: '13px', fontWeight: 500 }}>
-                Board
-                <select
-                  value={targetBoardId}
-                  onChange={(event) => setTargetBoardId(event.target.value)}
-                  className="mt-1 block w-full rounded-control border-0 bg-surface-2 px-3 text-text"
-                  style={{ height: 'var(--tap-target)' }}
-                >
-                  {boards.map((board) => <option key={board.id} value={board.id}>{board.name}</option>)}
-                </select>
-              </label>
-            </Field>
-          )}
 
           <Field>
             <Textarea
@@ -347,7 +312,7 @@ export function TaskComposer({
           <Field>
             <DependsOn
               task={task}
-              boardId={editing ? boardId : targetBoardId}
+              boardId={boardId}
               value={draft.dependsOn}
               onChange={(value) => set('dependsOn', value)}
             />
@@ -449,7 +414,7 @@ function isCustom(minutes: number | null): boolean {
  * stepper needs a number to step from, and 45 minutes is the first value the
  * presets do not already offer.
  */
-function DurationChips({
+export function DurationChips({
   value,
   onChange,
 }: {
@@ -569,11 +534,11 @@ function StepButton({
   );
 }
 
-function Field({ children }: { children: React.ReactNode }) {
+export function Field({ children }: { children: React.ReactNode }) {
   return <div className="mt-4">{children}</div>;
 }
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
+export function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
     <span
       className="mb-2 block text-text-secondary"
@@ -585,7 +550,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 }
 
 /** A binary flag, as a row-height target rather than a 20px switch. */
-function Toggle({
+export function Toggle({
   icon,
   label,
   on,
@@ -629,7 +594,7 @@ function Toggle({
  * legal and simply gates nothing, and dropping them would make the options
  * shift under the user the moment they finished something.
  */
-function DependsOn({
+export function DependsOn({
   task,
   boardId,
   value,

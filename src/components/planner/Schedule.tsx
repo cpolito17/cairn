@@ -60,9 +60,13 @@ export interface ScheduleProps {
    * source of truth for whether a creation is in flight. Handing its value
    * back down here is what keeps the drawn box on the grid, in the
    * background, for as long as the New Task sheet is open, instead of it
-   * vanishing the instant the drag ends.
+   * vanishing the instant the drag ends. `kind` follows the composer's own
+   * Task/Event pill, so the box reads whichever one is about to be made.
    */
-  creatingSlot?: { scheduledAt: number; durationMinutes: number } | null | undefined;
+  creatingSlot?:
+    | { scheduledAt: number; durationMinutes: number; kind: 'task' | 'event' }
+    | null
+    | undefined;
   /** The day pager, on narrow viewports. Sits above the columns. */
   pager?: ReactNode;
   /**
@@ -365,7 +369,7 @@ function DayColumn({
   onOpen(task: Task): void;
   onOpenEvent(event: PlannerEvent): void;
   onCreateSlot?: ((startMs: number, durationMinutes: number) => void) | undefined;
-  creatingSlot: { scheduledAt: number; durationMinutes: number } | null;
+  creatingSlot: { scheduledAt: number; durationMinutes: number; kind: 'task' | 'event' } | null;
   placing: PlacingSlot | null;
 }) {
   const gaps = gapsBelow(layout.blocks);
@@ -406,11 +410,18 @@ function DayColumn({
   // recomputed from that handoff so it keeps sitting on the grid, in the
   // background, for as long as the New Task sheet is open (rather than the
   // drag's own state, which is cleared the moment the pointer lifts).
-  const box =
-    creating ??
-    (creatingSlot
-      ? { start: minutesInto(creatingSlot.scheduledAt, layout.dayStart), minutes: creatingSlot.durationMinutes }
-      : null);
+  // Label follows the composer's own Task/Event pill once it exists; the live
+  // drag itself is always "New Task" — the pill is not on screen yet to say
+  // otherwise.
+  const box = creating
+    ? { start: creating.start, minutes: creating.minutes, label: 'New Task' }
+    : creatingSlot
+      ? {
+          start: minutesInto(creatingSlot.scheduledAt, layout.dayStart),
+          minutes: creatingSlot.durationMinutes,
+          label: creatingSlot.kind === 'event' ? 'New Event' : 'New Task',
+        }
+      : null;
 
   return (
     <div
@@ -472,15 +483,16 @@ function DayColumn({
         <>
           <div className="pointer-events-none absolute z-10 overflow-hidden rounded-chip bg-accent-tint px-2 text-left text-row text-text"
             style={{ top: offsetOf(box.start), height: offsetOf(box.minutes), left: 2, right: 2, border: '2px solid var(--accent)' }}>
-            <span style={{ lineHeight: box.minutes <= 15 ? offsetOf(15) : undefined }}>New Task</span>
+            <span style={{ lineHeight: box.minutes <= 15 ? offsetOf(15) : undefined }}>{box.label}</span>
           </div>
           {/* The box never gets `BlockFace`'s own range line — it has no task
-              to draw one for yet — so unlike a real block's drag popup this
-              one is not gated on duration: it is the only place the New
-              Task's start and end are readable at all. Opens leftward on the
-              last column, whose right edge is the grid's own — every column
-              in the single-day view — so the grid's `overflow-x-hidden`
-              never clips it. */}
+              or event to draw one for yet — so unlike a real block's drag
+              popup this one is not gated on duration: it is the only place
+              the new thing's start and end are readable at all, whichever of
+              the two it turns out to be. Opens leftward on the last column,
+              whose right edge is the grid's own — every column in the
+              single-day view — so the grid's `overflow-x-hidden` never clips
+              it. */}
           <div
             className="pointer-events-none absolute z-20 whitespace-nowrap rounded-chip bg-surface px-2 py-1 text-meta text-text shadow-md"
             style={

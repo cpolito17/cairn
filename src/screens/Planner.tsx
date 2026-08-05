@@ -54,6 +54,7 @@ import { usePlannerWide } from '../components/planner/scale';
 import { SchedulingProvider } from '../components/planner/scheduling';
 import { UnscheduledList } from '../components/planner/UnscheduledList';
 import { EventEditor } from '../components/planner/EventEditor';
+import { CreateSlotComposer, type CreateSlotKind } from '../components/planner/CreateSlotComposer';
 import { TaskComposer } from '../components/TaskComposer';
 import { Segmented } from '../components/ui/Segmented';
 import { Sheet } from '../components/ui/Sheet';
@@ -112,6 +113,13 @@ export function Planner() {
   const [listOpen, setListOpen] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
   const [creating, setCreating] = useState<{ scheduledAt: number; durationMinutes: number } | null>(null);
+  /**
+   * What the drawn box currently reads while its composer is open — "New
+   * Task" or "New Event" — so `Schedule.tsx` can show the same word the pill
+   * selector is showing. Reset to 'task' with every new box, not on every
+   * open of the composer: the two happen at the same instant here.
+   */
+  const [creatingKind, setCreatingKind] = useState<CreateSlotKind>('task');
   const [eventEditor, setEventEditor] = useState<PlannerEvent | 'new' | null>(null);
   /** §6.7's keyboard placement: the proposed slot, or null when not placing. */
   const [placing, setPlacing] = useState<PlacingSlot | null>(null);
@@ -354,8 +362,11 @@ export function Planner() {
               settings={settings}
               onOpen={setEditing}
               onOpenEvent={setEventEditor}
-              onCreateSlot={(scheduledAt, durationMinutes) => setCreating({ scheduledAt, durationMinutes })}
-              creatingSlot={creating}
+              onCreateSlot={(scheduledAt, durationMinutes) => {
+                setCreating({ scheduledAt, durationMinutes });
+                setCreatingKind('task');
+              }}
+              creatingSlot={creating && { ...creating, kind: creatingKind }}
               placing={placing}
               pager={
                 wide ? undefined : (
@@ -398,15 +409,19 @@ export function Planner() {
       )}
 
       <TaskComposer
-        open={editing !== null || creating !== null}
-        onClose={() => { setEditing(null); setCreating(null); }}
+        open={editing !== null}
+        onClose={() => setEditing(null)}
         task={editing ?? undefined}
         boardId={editing?.boardId ?? ''}
         context={context}
-        prefillName={creating ? 'New Task' : ''}
-        chooseBoard={creating !== null}
-        initialScheduledAt={creating?.scheduledAt ?? null}
-        initialDurationMinutes={creating?.durationMinutes ?? null}
+      />
+      <CreateSlotComposer
+        open={creating !== null}
+        onClose={() => setCreating(null)}
+        context={context}
+        scheduledAt={creating?.scheduledAt ?? 0}
+        durationMinutes={creating?.durationMinutes ?? SCHEDULE_STEP_MINUTES}
+        onKindChange={setCreatingKind}
       />
       <EventEditor
         open={eventEditor !== null}
