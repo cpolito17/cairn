@@ -21,7 +21,7 @@
  */
 
 import { Flag, Prohibit } from '@phosphor-icons/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { addTask } from '../../lib/actions';
 import { createEventSpec, selectBoardsFor, useStore } from '../../lib/store';
 import { localDateKey } from '../../../shared/events';
@@ -105,6 +105,7 @@ export function CreateSlotComposer({
   const [targetBoardId, setTargetBoardId] = useState('');
   const [task, setTask] = useState<TaskFields>(emptyTaskFields());
   const [event, setEvent] = useState<EventFields>(() => eventFieldsFromBox(scheduledAt, durationMinutes));
+  const nameRef = useRef<HTMLInputElement>(null);
 
   // Reseeded every opening, from the box that is about to be drawn under it —
   // never mid-session, or a kind switch after the fields have been touched
@@ -120,6 +121,12 @@ export function CreateSlotComposer({
     // side is new territory.
     setTask({ ...emptyTaskFields(), durationMinutes });
     setEvent(eventFieldsFromBox(scheduledAt, durationMinutes));
+    // This is a typing surface first — land the caret in Name rather than
+    // leaving it on the close button, which is where the overlay's own focus
+    // trap puts it (`useOverlay`, on `Modal`/`Sheet`). That trap's effect is a
+    // descendant of this one and effects commit child-first, so calling this
+    // here — after it, not before — is what makes this the focus that sticks.
+    nameRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -201,7 +208,13 @@ export function CreateSlotComposer({
             options={KIND_OPTIONS}
             value={kind}
             onChange={selectKind}
-            className="w-auto shrink-0"
+            // `shrink-0` alone is not enough: each option inside `Segmented`
+            // is itself `min-w-0 flex-1`, so with no floor of its own this
+            // control collapses to whatever the header's `h2` (also flexible)
+            // leaves behind, and "Event" truncates first since it is the
+            // longer label. `min-w` is the same fix `Planner.tsx`'s own
+            // Week/Month/Year selector already uses for the same reason.
+            className="w-auto min-w-[9.5rem] shrink-0"
           />
         }
       />
@@ -213,6 +226,7 @@ export function CreateSlotComposer({
         }}
       >
         <Input
+          ref={nameRef}
           label="Name"
           value={name}
           maxLength={120}

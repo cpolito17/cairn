@@ -21,7 +21,7 @@
  * separate controls; the check-off buttons are their siblings.
  */
 
-import { ArrowRight, Check, LinkSimple } from '@phosphor-icons/react';
+import { Check, LinkSimple, Plus } from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
 import { toggleComplete } from '../lib/actions';
 import { prefersReducedMotion } from '../lib/motion';
@@ -39,10 +39,12 @@ export function BoardCard({
   board,
   onEditBoard,
   onEditTask,
+  onAddTask,
 }: {
   board: Board;
   onEditBoard(): void;
   onEditTask(task: Task): void;
+  onAddTask(): void;
 }) {
   const { percent, done, total } = useBoardProgress(board.id);
   const active = useActiveTasks(board.id);
@@ -84,15 +86,20 @@ export function BoardCard({
               {board.name}
             </h3>
           </button>
-          <Link
-            to={to}
+          {/* Navigation into the board still lives below, on the description
+              and progress block — this slot is for the one action worth a
+              shortcut from the dashboard: adding to a board without leaving
+              it. */}
+          <button
+            type="button"
             data-no-drag=""
+            onClick={onAddTask}
             className="pressable hoverable flex shrink-0 items-center justify-center rounded-control text-text-secondary"
             style={{ width: 'var(--tap-target)', height: 'var(--tap-target)' }}
-            aria-label={`Open ${board.name}`}
+            aria-label={`Add task to ${board.name}`}
           >
-            <ArrowRight size={18} />
-          </Link>
+            <Plus size={18} />
+          </button>
         </div>
 
         <Link to={to} className="pressable hoverable -mx-2 mt-2 block rounded-control px-2 pb-2">
