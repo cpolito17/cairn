@@ -17,6 +17,7 @@ import { ApiError, login } from '../lib/api';
 import { startDemo } from '../lib/demo';
 import { OUT_CURVE, prefersReducedMotion } from '../lib/motion';
 import { takeRedirect } from '../lib/redirect';
+import { Wordmark } from '../components/Wordmark';
 
 /** The shake: a short horizontal wiggle, well under the 300ms ceiling. */
 const SHAKE_MS = 240;
@@ -135,11 +136,11 @@ export function Login() {
   return (
     <main className="flex min-h-dvh items-center justify-center px-gutter">
       <div className="w-full max-w-[22rem]">
-        <h1
-          className="mb-8 text-center text-hero text-text"
-          style={{ fontFamily: 'var(--font-wordmark)', fontWeight: 400, letterSpacing: '-0.01em' }}
-        >
-          tasks
+        <h1 className="mb-8 flex justify-center">
+          {/* text-hero's own two sizes — h-8 (2rem) / md:h-9 (2.25rem) — so
+              the wordmark image replaces the styled text at the size it
+              held, not just its place. */}
+          <Wordmark className="h-8 md:h-9" />
         </h1>
 
         <form onSubmit={onSubmit} noValidate>

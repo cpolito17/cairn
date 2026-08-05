@@ -39,6 +39,7 @@ import { useStore } from '../lib/store';
 import type { Context } from '../../shared/types';
 import { SettingsSheet } from './SettingsSheet';
 import { Segmented } from './ui/Segmented';
+import { Wordmark } from './Wordmark';
 import { OUT } from '../lib/motion';
 
 const VIEW_OPTIONS: { value: View; label: string }[] = [
@@ -108,12 +109,10 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
                   </span>
                 </button>
               ) : (
-                <span
-                  className="block truncate text-board-title text-text"
-                  style={{ fontFamily: 'var(--font-wordmark)', fontWeight: 400, letterSpacing: '-0.01em' }}
-                >
-                  tasks
-                </span>
+                // text-board-title's own two sizes — 1.375rem / md:1.5rem —
+                // so the wordmark image replaces the styled text at the size
+                // it held, not just its place.
+                <Wordmark className="h-[1.375rem] md:h-[1.5rem]" />
               )}
             </div>
 

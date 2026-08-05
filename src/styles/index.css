@@ -11,14 +11,41 @@
   font-display: swap;
 }
 
-/* Self-hosted Archivo Black, for the wordmark alone — see --font-wordmark.
-   OFL-licensed; public/fonts/ArchivoBlack-LICENSE.txt carries the text. */
-@font-face {
-  font-family: 'Archivo Black';
-  src: url('/fonts/ArchivoBlack-Regular.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
+/*
+ * The wordmark is the logo now (`Wordmark.tsx`), not set type — Archivo Black
+ * and --font-wordmark, which existed only to fake it in text, are gone with
+ * it (public/fonts/ArchivoBlack-*.* no longer ship).
+ *
+ * Two images, not one, because the mark is a fixed dark green and half of
+ * this app's eight themes have a dark --bg (THEME_GROUPS in lib/theme.ts) —
+ * the plain mark on those would be close to invisible. `tasks-full-on-dark`
+ * is the same mark relit for that half, generated once and checked in next
+ * to the original rather than inverted live: a CSS filter would flatten the
+ * accent squares' three different hues into whatever grey their shared
+ * lightness maps to.
+ *
+ * `.wordmark` is a fixed-height inline box (the caller sizes it, matching
+ * whatever text size it replaces); both images fill it via `height: 100%`
+ * with `width: auto`, and only one is ever `display`ed. Every dark theme
+ * gets the same rule, every light theme the same absence of one — kept in
+ * sync with THEME_GROUPS by hand, the same way THEME_SWATCHES already is.
+ */
+.wordmark-on-dark {
+  display: none;
+}
+
+[data-theme='ocean'] .wordmark-on-dark,
+[data-theme='dark'] .wordmark-on-dark,
+[data-theme='monokai-dark'] .wordmark-on-dark,
+[data-theme='dusk'] .wordmark-on-dark {
+  display: inline-block;
+}
+
+[data-theme='ocean'] .wordmark-on-light,
+[data-theme='dark'] .wordmark-on-light,
+[data-theme='monokai-dark'] .wordmark-on-light,
+[data-theme='dusk'] .wordmark-on-light {
+  display: none;
 }
 
 /* Tailwind v4 theme. `inline` emits the var() references straight into the
