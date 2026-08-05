@@ -397,6 +397,41 @@
     transition: opacity 160ms var(--ease-out);
   }
 
+  /* The previewed drop slot (V2 §6.7): the shape the release will commit to,
+     drawn under the drag at reduced opacity so the commitment is visible before
+     it is made. Only `opacity` and `transform` are ever written to it — the box
+     is set once, when a drag begins. */
+  .planner-preview {
+    background: var(--accent-tint);
+    border: 1px dashed var(--accent);
+    border-radius: var(--radius-chip);
+    opacity: 0;
+    transition: opacity 120ms var(--ease-out);
+  }
+
+  /* The resize grip. Faint at rest so the edge is findable without shouting,
+     and only brighter on a device that can actually hover (§8.5). */
+  .planner-resize .planner-grip {
+    opacity: 0.5;
+    transition: opacity 160ms var(--ease-out);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .planner-resize .planner-grip {
+      opacity: 0;
+    }
+
+    .planner-resize:hover .planner-grip {
+      opacity: 1;
+    }
+  }
+
+  /* The dragged proxy. It carries the lift's elevation, which is what says it
+     is above the grid rather than in it. */
+  .planner-proxy {
+    border-radius: var(--radius-chip);
+  }
+
   /* The grid's own scroll box. `overscroll-behavior` keeps a flick at the top
      of the schedule from scrolling the page behind it, which on iOS is the
      difference between paging the day and bouncing the whole app. */

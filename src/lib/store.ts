@@ -860,6 +860,36 @@ export function moveTaskSpec(task: Task, boardId: string, position: string): Mut
   return { ...spec, onError: `Couldn't move "${task.name}".` };
 }
 
+/**
+ * Placing a task on the grid, or moving the block it already has (V2 §6.7).
+ *
+ * `scheduledAt` and nothing else: a move changes when the work is planned, not
+ * what the task is or how long it takes. The value is already snapped to the
+ * 15-minute grid by the caller — the Worker rejects an unsnapped one rather
+ * than quietly rounding it, because a server that moves a block is a server the
+ * client's optimistic state disagrees with (§3.1).
+ */
+export function scheduleTaskSpec(task: Task, scheduledAt: number): MutationSpec<Task> {
+  const spec = updateTaskSpec(task, { scheduledAt });
+  return { ...spec, onError: `Couldn't schedule "${task.name}".` };
+}
+
+/** Clearing the block — the drag back onto the list, and the composer's action. */
+export function unscheduleTaskSpec(task: Task): MutationSpec<Task> {
+  const spec = updateTaskSpec(task, { scheduledAt: null });
+  return { ...spec, onError: `Couldn't unschedule "${task.name}".` };
+}
+
+/**
+ * A resize on the grid, written to the task's **`durationMinutes`** — the same
+ * field the composer's chips set (V2 §6.7). The grid is the other way of
+ * setting it, not a second value that shadows it.
+ */
+export function resizeTaskSpec(task: Task, durationMinutes: number): MutationSpec<Task> {
+  const spec = updateTaskSpec(task, { durationMinutes });
+  return { ...spec, onError: `Couldn't resize "${task.name}".` };
+}
+
 export function deleteTaskSpec(task: Task): MutationSpec<void> {
   return {
     onError: `Couldn't delete "${task.name}".`,

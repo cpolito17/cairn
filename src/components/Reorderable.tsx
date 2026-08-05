@@ -48,36 +48,25 @@ import {
   type FlipEntry,
   type LayoutRect,
 } from '../lib/flip';
+// The numbers that decide how a drag *feels* are shared with the Planner's
+// scheduling gesture (`components/planner/scheduling.tsx`). Two primitives, one
+// vocabulary — see the header of `lib/gesture.ts` for why they are two.
+import {
+  CLICK_GUARD_MS,
+  clamp,
+  edgeSpeed,
+  LIFT_SCALE,
+  LIFT_SECONDS,
+  LONG_PRESS_MS,
+  POINTER_SLOP,
+  PROJECTION,
+  resist,
+  sample,
+  TOUCH_SLOP,
+  velocityOf,
+  type Sample,
+} from '../lib/gesture';
 import { OUT, prefersReducedMotion, SETTLE } from '../lib/motion';
-
-/** §8.5: a 200ms long-press with ~10px of hit-slop, so a scroll stays a scroll. */
-const LONG_PRESS_MS = 200;
-const TOUCH_SLOP = 10;
-/** §8.5: on a fine pointer, ~6px of movement and the drag is already running. */
-const POINTER_SLOP = 6;
-
-const LIFT_SCALE = 1.02;
-const LIFT_SECONDS = 0.15;
-
-/** Asymptotic ceiling of the boundary rubber-band, in px. */
-const RUBBER = 72;
-/** Auto-scroll: the band at each viewport edge, and the speed at the very edge. */
-const EDGE_BAND = 84;
-const EDGE_MAX_SPEED = 1150;
-/** Seconds of the release velocity projected before the landing slot is chosen. */
-const PROJECTION = 0.12;
-/** Velocity is measured over the tail of the gesture, not the whole of it. */
-const VELOCITY_WINDOW_MS = 60;
-/**
- * A gesture that has been still for longer than this has no velocity, whatever
- * the last few samples say. Without the check, holding a row steady for a beat
- * and then letting go throws it — the samples from before the pause are still
- * the newest ones there are.
- */
-const VELOCITY_STALE_MS = 70;
-const VELOCITY_LIMIT = 4000;
-/** How long after a release a click is still that release, not a tap. */
-const CLICK_GUARD_MS = 400;
 
 export interface ReorderableItemState {
   dragging: boolean;
@@ -122,12 +111,6 @@ interface Candidate {
   timer: number | null;
 }
 
-interface Sample {
-  t: number;
-  x: number;
-  y: number;
-}
-
 interface Drag {
   key: string;
   index: number;
@@ -157,22 +140,6 @@ interface Drag {
   lastFrame: number;
 }
 
-function rubberBand(overflow: number): number {
-  const distance = Math.abs(overflow);
-  return Math.sign(overflow) * RUBBER * (1 - 1 / (distance / RUBBER + 1));
-}
-
-/** Progressive resistance past an end of the list, never a hard stop (§8.5). */
-function resist(value: number, min: number, max: number): number {
-  if (value < min) return min + rubberBand(value - min);
-  if (value > max) return max + rubberBand(value - max);
-  return value;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return value < min ? min : value > max ? max : value;
-}
-
 function slotIndexFor(slots: LayoutRect[], x: number, y: number, grid: boolean): number {
   let best = 0;
   let bestDistance = Infinity;
@@ -187,23 +154,6 @@ function slotIndexFor(slots: LayoutRect[], x: number, y: number, grid: boolean):
     }
   }
   return best;
-}
-
-function velocityOf(samples: Sample[], now: number): { x: number; y: number } {
-  if (samples.length < 2) return { x: 0, y: 0 };
-  const last = samples[samples.length - 1];
-  if (now - last.t > VELOCITY_STALE_MS) return { x: 0, y: 0 };
-  let first = last;
-  for (let i = samples.length - 1; i >= 0; i--) {
-    if (last.t - samples[i].t > VELOCITY_WINDOW_MS) break;
-    first = samples[i];
-  }
-  const dt = (last.t - first.t) / 1000;
-  if (dt <= 0) return { x: 0, y: 0 };
-  return {
-    x: clamp((last.x - first.x) / dt, -VELOCITY_LIMIT, VELOCITY_LIMIT),
-    y: clamp((last.y - first.y) / dt, -VELOCITY_LIMIT, VELOCITY_LIMIT),
-  };
 }
 
 /**
@@ -236,7 +186,10 @@ function ReorderableList<T>({
   const candidateRef = useRef<Candidate | null>(null);
   const dragRef = useRef<Drag | null>(null);
   const edgeRef = useRef<Edge>('none');
-  const suppressClickRef = useRef(0);
+  // `-Infinity`, not `0`: `performance.now()` counts from the document, so a
+  // zero here reads as "released just now" for the first `CLICK_GUARD_MS` of
+  // every page load, and swallows a tap that lands in that window.
+  const suppressClickRef = useRef(Number.NEGATIVE_INFINITY);
 
   // Handlers live for the length of a gesture, not the length of a render, so
   // they read the current props from here rather than closing over them.
@@ -355,8 +308,7 @@ function ReorderableList<T>({
       drag.entry.y.set(y);
       if (drag.grid) drag.entry.x.set(x);
 
-      drag.samples.push({ t: performance.now(), x: docX, y: docY });
-      if (drag.samples.length > 12) drag.samples.shift();
+      sample(drag.samples, docX, docY);
 
       setEdgeState(rawY > drag.maxY + 1 ? 'bottom' : rawY < drag.minY - 1 ? 'top' : 'none');
 
@@ -377,14 +329,8 @@ function ReorderableList<T>({
       const dt = Math.min(0.05, (now - drag.lastFrame) / 1000);
       drag.lastFrame = now;
 
-      const fromTop = drag.clientY;
-      const fromBottom = window.innerHeight - drag.clientY;
-      let speed = 0;
-      // Accelerating with proximity to the edge (§8.5) — squared, so the band
-      // is gentle where the user is merely near it and quick at the very edge.
-      if (fromTop < EDGE_BAND) speed = -EDGE_MAX_SPEED * ((EDGE_BAND - fromTop) / EDGE_BAND) ** 2;
-      else if (fromBottom < EDGE_BAND)
-        speed = EDGE_MAX_SPEED * ((EDGE_BAND - fromBottom) / EDGE_BAND) ** 2;
+      // Accelerating with proximity to the edge of the viewport (§8.5).
+      const speed = edgeSpeed(drag.clientY, window.innerHeight);
 
       if (speed !== 0) {
         const before = window.scrollY;
@@ -640,7 +586,7 @@ function ReorderableList<T>({
     // drag would swallow a deliberate tap that lands within the guard window —
     // reordering a row and then immediately checking it is one gesture in the
     // user's head and must be two here.
-    suppressClickRef.current = 0;
+    suppressClickRef.current = Number.NEGATIVE_INFINITY;
 
     if (latest.current.disabled) return;
     if (event.button !== 0) return;
@@ -693,7 +639,7 @@ function ReorderableList<T>({
   function onClickCapture(event: ReactMouseEvent) {
     // The click that follows a drag is the release, not a tap on the row.
     if (performance.now() - suppressClickRef.current > CLICK_GUARD_MS) return;
-    suppressClickRef.current = 0;
+    suppressClickRef.current = Number.NEGATIVE_INFINITY;
     event.preventDefault();
     event.stopPropagation();
   }

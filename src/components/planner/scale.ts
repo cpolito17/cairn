@@ -69,3 +69,15 @@ export function hourPixels(): number {
   const root = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
   return (Number.isFinite(root) ? root : 16) * HOUR_REM;
 }
+
+/**
+ * Pixels per minute — the scale a pointer gesture works in.
+ *
+ * The drag and the resize are the two places the grid has to be answered in
+ * real numbers rather than in `calc()`: a finger moves in pixels, and the
+ * minutes it has crossed is a division. Everything that can stay a `calc()`
+ * still does, so a larger text size still enlarges the grid.
+ */
+export function minutePixels(): number {
+  return hourPixels() / MINUTES_PER_HOUR;
+}
