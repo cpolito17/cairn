@@ -17,9 +17,10 @@
  * they just did.
  */
 
-import { Archive, SignOut } from '@phosphor-icons/react';
+import { Archive, ArrowCounterClockwise, SignOut } from '@phosphor-icons/react';
 import { useId, type ReactNode } from 'react';
 import * as api from '../lib/api';
+import { isDemo, startDemo } from '../lib/demo';
 import { navigate } from '../lib/router';
 import { updateSettingsSpec, useSettings, useStore } from '../lib/store';
 import { CONTEXTS, type Context } from '../../shared/types';
@@ -41,6 +42,9 @@ export interface SettingsSheetProps {
 }
 
 export function SettingsSheet({ open, onClose, onSignedOut }: SettingsSheetProps) {
+  // Read once per render rather than held in state: demo mode is decided before
+  // this component ever mounts and cannot change under it.
+  const demo = isDemo();
   const context = useStore((state) => state.context);
   const setContext = useStore((state) => state.setContext);
   const theme = useStore((state) => state.theme);
@@ -95,8 +99,23 @@ export function SettingsSheet({ open, onClose, onSignedOut }: SettingsSheetProps
           Archived boards
         </ActionRow>
 
+        {/* Demo only. Re-seeding is a navigation rather than a state flip for
+            the same reason entering the demo is: a fresh world deserves a
+            fresh boot, not a store reconciled against one. */}
+        {demo && (
+          <ActionRow
+            icon={<ArrowCounterClockwise size={20} />}
+            onClick={() => {
+              startDemo();
+              window.location.assign('/');
+            }}
+          >
+            Reset the demo
+          </ActionRow>
+        )}
+
         <ActionRow icon={<SignOut size={20} />} onClick={logOut}>
-          Log out
+          {demo ? 'Leave the demo' : 'Log out'}
         </ActionRow>
       </div>
     </Dialog>
