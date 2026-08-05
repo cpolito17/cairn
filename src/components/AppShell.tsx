@@ -19,12 +19,12 @@
  * that changed its meaning rather than a new control that arrived beside the
  * old one — and the context switch it gave up moved into the settings sheet.
  *
- * **That move is why the context label exists** (V2 §4.2). A mode you cannot
- * see is a mode you file things into by accident, and the per-context theme
- * only carries that for someone who has set two different ones. The label says
- * it outright, on every route, and it stays when the wordmark is replaced by
- * the back affordance — a level deep is exactly where "which tab am I in" is
- * least obvious.
+ * **The context label under the wordmark used to say Personal/Work outright**
+ * (V2 §4.2) — a mode you cannot see is a mode you file things into by
+ * accident. The `ContextToggle` pill now does that job instead, visible in
+ * the same header without opening anything, so the small label under the
+ * wordmark carries only what the pill does not: the demo notice, when there
+ * is one.
  *
  * Switching context is local state and nothing else: `/api/state` already holds
  * both contexts, so there is no fetch to make.
@@ -117,22 +117,20 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
               )}
             </div>
 
-            {/* V2 §4.2: 12px/500 in --text-secondary, under whichever of the
-                two is showing. `aria-live` is deliberately absent — the context
-                changes only because the user just changed it, from a sheet that
-                closes to reveal this, so announcing it would be reading their
-                own action back to them. */}
-            <span
-              className="block truncate text-text-secondary"
-              style={{ fontSize: '12px', fontWeight: 500, lineHeight: 1.35 }}
-            >
-              {/* In the demo the label says so, in the one place that already
-                  names the mode the user is in. A visitor who cannot tell they
-                  are in a sandbox is a visitor who thinks they broke something
-                  real. */}
-              {isDemo() ? 'Demo · ' : ''}
-              {context === 'personal' ? 'Personal' : 'Work'}
-            </span>
+            {/* Personal/Work no longer prints here — the `ContextToggle` pill
+                in the header says it now, in one tap's reach instead of a
+                passive label. The demo notice is what is left: a visitor who
+                cannot tell they are in a sandbox is a visitor who thinks they
+                broke something real, and that still belongs under the
+                wordmark, in --text-secondary at 12px/500. */}
+            {isDemo() && (
+              <span
+                className="block truncate text-text-secondary"
+                style={{ fontSize: '12px', fontWeight: 500, lineHeight: 1.35 }}
+              >
+                Demo
+              </span>
+            )}
           </div>
 
           <div className="app-header-segmented">
