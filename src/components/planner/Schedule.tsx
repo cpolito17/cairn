@@ -37,7 +37,7 @@ import { useSchedule, useStore } from '../../lib/store';
 import { Button } from '../ui/Button';
 import { ErrorLine, loadErrorMessage } from '../ui/Section';
 import { Skeleton } from '../ui/Skeleton';
-import { Block } from './Block';
+import { Block, blockRange } from './Block';
 import { EventBlock } from './EventBlock';
 import { PreviewSlot, useGridRegistration, type GridRegistration } from './scheduling';
 import { hourPixels, HOURS_PER_DAY, minutePixels, minutesInto, offsetOf } from './scale';
@@ -220,7 +220,7 @@ function Grid({
             the columns and the gesture already agree on. */}
         <div className="relative flex" ref={setContent} style={{ height: offsetOf(HOURS_PER_DAY * 60) }}>
           <TimeAxis />
-          {layouts.map((layout) => (
+          {layouts.map((layout, index) => (
             <DayColumn
               key={layout.dayStart}
               layout={layout}
@@ -228,6 +228,12 @@ function Grid({
               events={events}
               settings={settings}
               today={isSameDay(layout.dayStart, today)}
+              // The last column's right edge is the grid's own right edge —
+              // and in the single-day narrow view that is every render — so
+              // the New Task popup has to open leftward there or the grid's
+              // `overflow-x-hidden` clips it clean off (§6.4: one column is
+              // not a smaller week view, and that includes its edges).
+              lastColumn={index === layouts.length - 1}
               onOpen={onOpen}
               onOpenEvent={onOpenEvent}
               onCreateSlot={onCreateSlot}
@@ -343,6 +349,7 @@ function DayColumn({
   events,
   settings,
   today,
+  lastColumn,
   onOpen,
   onOpenEvent,
   onCreateSlot,
@@ -354,6 +361,7 @@ function DayColumn({
   events: Record<string, PlannerEvent>;
   settings: Settings;
   today: boolean;
+  lastColumn: boolean;
   onOpen(task: Task): void;
   onOpenEvent(event: PlannerEvent): void;
   onCreateSlot?: ((startMs: number, durationMinutes: number) => void) | undefined;
@@ -460,10 +468,31 @@ function DayColumn({
         />
       ))}
 
-      {box && <div className="pointer-events-none absolute z-10 overflow-hidden rounded-chip bg-accent-tint px-2 text-left text-row text-text"
-        style={{ top: offsetOf(box.start), height: offsetOf(box.minutes), left: 2, right: 2, border: '2px solid var(--accent)' }}>
-        <span style={{ lineHeight: box.minutes <= 15 ? offsetOf(15) : undefined }}>New Task</span>
-      </div>}
+      {box && (
+        <>
+          <div className="pointer-events-none absolute z-10 overflow-hidden rounded-chip bg-accent-tint px-2 text-left text-row text-text"
+            style={{ top: offsetOf(box.start), height: offsetOf(box.minutes), left: 2, right: 2, border: '2px solid var(--accent)' }}>
+            <span style={{ lineHeight: box.minutes <= 15 ? offsetOf(15) : undefined }}>New Task</span>
+          </div>
+          {/* The box never gets `BlockFace`'s own range line — it has no task
+              to draw one for yet — so unlike a real block's drag popup this
+              one is not gated on duration: it is the only place the New
+              Task's start and end are readable at all. Opens leftward on the
+              last column, whose right edge is the grid's own — every column
+              in the single-day view — so the grid's `overflow-x-hidden`
+              never clips it. */}
+          <div
+            className="pointer-events-none absolute z-20 whitespace-nowrap rounded-chip bg-surface px-2 py-1 text-meta text-text shadow-md"
+            style={
+              lastColumn
+                ? { top: offsetOf(box.start), right: 'calc(100% + 8px)' }
+                : { top: offsetOf(box.start), left: 'calc(100% + 8px)' }
+            }
+          >
+            {blockRange(layout.dayStart + box.start * 60_000, box.minutes)}
+          </div>
+        </>
+      )}
 
       {placing && <PlacingHighlight placing={placing} dayStart={layout.dayStart} />}
 

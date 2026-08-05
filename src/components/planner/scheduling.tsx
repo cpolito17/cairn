@@ -1488,7 +1488,12 @@ function DragLayer({ scheduler }: { scheduler: Scheduler }) {
       ) : (
         <DragShape spec={spec} slot={state.slot} />
       )}
-      {state.slot && (
+      {/* Below an hour the block itself is too short to hold `BlockFace`'s own
+          range line (`EXPANDED_MINUTES` in Block.tsx), so this is the only
+          place the range is legible while the drag is live. At an hour and
+          above the settled block reads it directly, so the popup would be
+          telling the eye something it can already see below the task name. */}
+      {state.slot && state.slot.minutes < 60 && (
         <div
           className="pointer-events-none absolute left-[calc(100%+8px)] top-0 whitespace-nowrap rounded-chip bg-surface px-2 py-1 text-meta text-text shadow-md"
           style={{ zIndex: 2 }}
