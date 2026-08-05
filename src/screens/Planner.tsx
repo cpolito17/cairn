@@ -355,6 +355,7 @@ export function Planner() {
               onOpen={setEditing}
               onOpenEvent={setEventEditor}
               onCreateSlot={(scheduledAt, durationMinutes) => setCreating({ scheduledAt, durationMinutes })}
+              creatingSlot={creating}
               placing={placing}
               pager={
                 wide ? undefined : (

@@ -53,6 +53,16 @@ export interface ScheduleProps {
   onOpen(task: Task): void;
   onOpenEvent(event: PlannerEvent): void;
   onCreateSlot?: ((startMs: number, durationMinutes: number) => void) | undefined;
+  /**
+   * The slot a just-finished drag-to-create handed off to the composer, or
+   * null. The gesture's own box (`DayColumn`'s local `creating` state) only
+   * lives for the drag itself; once the pointer is up, the composer is the
+   * source of truth for whether a creation is in flight. Handing its value
+   * back down here is what keeps the drawn box on the grid, in the
+   * background, for as long as the New Task sheet is open, instead of it
+   * vanishing the instant the drag ends.
+   */
+  creatingSlot?: { scheduledAt: number; durationMinutes: number } | null | undefined;
   /** The day pager, on narrow viewports. Sits above the columns. */
   pager?: ReactNode;
   /**
@@ -80,7 +90,17 @@ export interface PlacingSlot {
   since: number;
 }
 
-export function Schedule({ context, days, settings, onOpen, onOpenEvent, onCreateSlot, pager, placing }: ScheduleProps) {
+export function Schedule({
+  context,
+  days,
+  settings,
+  onOpen,
+  onOpenEvent,
+  onCreateSlot,
+  creatingSlot,
+  pager,
+  placing,
+}: ScheduleProps) {
   const status = useStore((state) => state.status);
 
   if (status === 'loading') return <ScheduleSkeleton days={days.length} pager={pager} />;
@@ -94,13 +114,24 @@ export function Schedule({ context, days, settings, onOpen, onOpenEvent, onCreat
       onOpen={onOpen}
       onOpenEvent={onOpenEvent}
       onCreateSlot={onCreateSlot}
+      creatingSlot={creatingSlot}
       pager={pager}
       placing={placing}
     />
   );
 }
 
-function Grid({ context, days, settings, onOpen, onOpenEvent, onCreateSlot, pager, placing }: ScheduleProps) {
+function Grid({
+  context,
+  days,
+  settings,
+  onOpen,
+  onOpenEvent,
+  onCreateSlot,
+  creatingSlot,
+  pager,
+  placing,
+}: ScheduleProps) {
   const layouts = useSchedule(context, days[0], days.length);
   const tasks = useStore((state) => state.tasks);
   const events = useStore((state) => state.events);
@@ -200,6 +231,9 @@ function Grid({ context, days, settings, onOpen, onOpenEvent, onCreateSlot, page
               onOpen={onOpen}
               onOpenEvent={onOpenEvent}
               onCreateSlot={onCreateSlot}
+              creatingSlot={
+                creatingSlot && isSameDay(creatingSlot.scheduledAt, layout.dayStart) ? creatingSlot : null
+              }
               placing={placing && isSameDay(placing.startMs, layout.dayStart) ? placing : null}
             />
           ))}
@@ -312,6 +346,7 @@ function DayColumn({
   onOpen,
   onOpenEvent,
   onCreateSlot,
+  creatingSlot,
   placing,
 }: {
   layout: DayLayout;
@@ -322,6 +357,7 @@ function DayColumn({
   onOpen(task: Task): void;
   onOpenEvent(event: PlannerEvent): void;
   onCreateSlot?: ((startMs: number, durationMinutes: number) => void) | undefined;
+  creatingSlot: { scheduledAt: number; durationMinutes: number } | null;
   placing: PlacingSlot | null;
 }) {
   const gaps = gapsBelow(layout.blocks);
@@ -356,6 +392,17 @@ function DayColumn({
     if (value.active && creating) onCreateSlot?.(layout.dayStart + creating.start * 60_000, creating.minutes);
     setCreating(null);
   }
+
+  // The box drawn under the pointer while dragging, or — once the pointer is
+  // up and the composer has taken `creatingSlot` from the drop — the same box
+  // recomputed from that handoff so it keeps sitting on the grid, in the
+  // background, for as long as the New Task sheet is open (rather than the
+  // drag's own state, which is cleared the moment the pointer lifts).
+  const box =
+    creating ??
+    (creatingSlot
+      ? { start: minutesInto(creatingSlot.scheduledAt, layout.dayStart), minutes: creatingSlot.durationMinutes }
+      : null);
 
   return (
     <div
@@ -413,9 +460,9 @@ function DayColumn({
         />
       ))}
 
-      {creating && <div className="pointer-events-none absolute z-10 overflow-hidden rounded-chip bg-accent-tint px-2 text-left text-row text-text"
-        style={{ top: offsetOf(creating.start), height: offsetOf(creating.minutes), left: 2, right: 2, border: '2px solid var(--accent)' }}>
-        <span style={{ lineHeight: creating.minutes <= 15 ? offsetOf(15) : undefined }}>New Task</span>
+      {box && <div className="pointer-events-none absolute z-10 overflow-hidden rounded-chip bg-accent-tint px-2 text-left text-row text-text"
+        style={{ top: offsetOf(box.start), height: offsetOf(box.minutes), left: 2, right: 2, border: '2px solid var(--accent)' }}>
+        <span style={{ lineHeight: box.minutes <= 15 ? offsetOf(15) : undefined }}>New Task</span>
       </div>}
 
       {placing && <PlacingHighlight placing={placing} dayStart={layout.dayStart} />}
