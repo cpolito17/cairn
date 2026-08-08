@@ -16,10 +16,12 @@
 
 import { CaretDown, Check, Clock, Flag, Plus } from '@phosphor-icons/react';
 import {
+  useCallback,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
 import {
@@ -101,9 +103,16 @@ interface PositionedStub {
   path: string;
 }
 
-/** A hover region holding one plus button, in tree-layer coordinates. */
+/** A region holding one plus button, in tree-layer coordinates. */
 interface AddPoint {
   id: string;
+  /**
+   * `stub` is the end of a chain: always visible, on every device. `edge` is a
+   * point between two existing nodes: revealed on hover, and offered only where
+   * there is a pointer that can hover — a tap has no way to preview which of
+   * several lines it is about to land on.
+   */
+  kind: 'edge' | 'stub';
   /** The task a task created from here will wait on. */
   prerequisiteId: string;
   prerequisiteName: string;
@@ -236,21 +245,38 @@ function DependencyBoard({
   // actually came out at once a name has wrapped past it, and lays out again
   // from the real numbers. `useLayoutEffect` is what keeps the guess from
   // ever painting: it runs, and the `setNodeHeights` it triggers commits,
-  // before the browser shows anything. Re-fires whenever `model.layout`
-  // itself is a new object — a new tree shape or an edited name, the two
-  // things that can change what a node measures at.
+  // before the browser shows anything.
+  //
+  // Measuring once per layout change is not enough, and the case that proves
+  // it is the one every cold load hits: Geist is `font-display: swap`
+  // (`index.css`), so the first paint is in the fallback face and every node
+  // reflows when the real one lands. No task changed, so nothing here would
+  // have re-measured — and an edge leaving a node whose height moved under a
+  // stale number visibly misses its centre. Observing the boxes instead of
+  // the data covers that, a window resize, and anything else that changes
+  // what a name wraps to, without this file having to enumerate them.
   const nodeRefs = useRef(new Map<string, HTMLDivElement>());
   const [nodeHeights, setNodeHeights] = useState<Map<string, number> | null>(null);
-  useLayoutEffect(() => {
-    const measured = new Map<string, number>();
-    for (const tree of model.layout.trees) {
-      for (const node of tree.nodes) {
-        const el = nodeRefs.current.get(node.task.id);
-        if (el) measured.set(node.task.id, el.getBoundingClientRect().height);
+
+  const measure = useCallback(() => {
+    setNodeHeights((previous) => {
+      const measured = new Map<string, number>();
+      for (const [id, el] of nodeRefs.current) {
+        measured.set(id, el.getBoundingClientRect().height);
       }
-    }
-    setNodeHeights(measured);
-  }, [model.layout]);
+      // Returning the previous map when nothing moved is what keeps the
+      // observer from re-rendering on its own initial delivery, and what keeps
+      // a re-layout that changes no height from costing a render.
+      return sameHeights(previous, measured) ? previous : measured;
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    measure();
+    const observer = new ResizeObserver(measure);
+    for (const el of nodeRefs.current.values()) observer.observe(el);
+    return () => observer.disconnect();
+  }, [model.layout, measure]);
 
   const geometry = useMemo(
     () => geometryOf(model.layout, nodeHeights),
@@ -383,18 +409,74 @@ function DependencyBoard({
 }
 
 /**
- * The plus, and the region that reveals it.
+ * The plus, and the region that governs it.
  *
- * Nothing here moves the tree: the region is a transparent box sitting in the
- * gap between two node columns, and only `opacity` and `transform` are ever
- * animated on what it contains (§8.5). The reveal is gated behind
- * `@media (hover: hover) and (pointer: fine)` in `index.css` — a touch device
- * has no hover to give, so there the plus is simply present, quietly.
+ * A **stub** point — the end of a chain — is simply present, on every device:
+ * it is the ordinary way to extend a tree, and making the ordinary way
+ * conditional on a hover the device may not have is how it goes unfound.
+ *
+ * An **edge** point is revealed by the pointer, because there are as many of
+ * them as there are lines and a page wearing all of them at once is a page of
+ * plus signs. Its one piece of state is the press: the composer opens over the
+ * region, and when it closes the pointer is still sitting inside — `:hover`
+ * alone would bring the plus straight back without the user asking. So a press
+ * spends the reveal, and only leaving the region and returning arms it again.
+ *
+ * Nothing here moves the tree: the region is a transparent box in the gap
+ * between two node columns, and only `opacity` and `transform` are animated on
+ * what it contains (§8.5).
  */
+/**
+ * The last pointer position any add point saw, shared across all of them.
+ *
+ * Adding a task re-lays out the tree under a pointer that has not moved, and
+ * the browser answers a layout change with boundary events: whichever point
+ * now sits under the cursor is told it has been entered, having been given no
+ * hover at all. Pressing one plus and getting a *different* one back in the
+ * same spot is the same surprise as the one you pressed coming back, so the
+ * rule is about the pointer rather than about any one region — nothing arms
+ * without a real change of position.
+ */
+let lastPointerX = Number.NaN;
+let lastPointerY = Number.NaN;
+
+function pointerMoved(event: ReactPointerEvent): boolean {
+  const moved = event.clientX !== lastPointerX || event.clientY !== lastPointerY;
+  lastPointerX = event.clientX;
+  lastPointerY = event.clientY;
+  return moved;
+}
+
 function AddAfter({ point, onAdd }: { point: AddPoint; onAdd(prerequisiteId: string): void }) {
+  const persistent = point.kind === 'stub';
+  const [armed, setArmed] = useState(false);
+  const spent = useRef(false);
+
+  function arm(event: ReactPointerEvent) {
+    // A tap reports as a hover once, on the way to the click. Edge points are
+    // display:none on a coarse pointer anyway; this is the belt to that brace.
+    if (event.pointerType === 'touch' || spent.current) return;
+    if (!pointerMoved(event)) return;
+    setArmed(true);
+  }
+
+  const hover = persistent
+    ? null
+    : {
+        onPointerEnter: arm,
+        onPointerMove: arm,
+        onPointerLeave: () => {
+          spent.current = false;
+          setArmed(false);
+        },
+      };
+
   return (
     <div
       className="blocker-add-hotspot absolute"
+      data-kind={point.kind}
+      data-armed={persistent || armed ? '' : undefined}
+      {...hover}
       style={{
         left: point.left,
         top: point.top,
@@ -430,7 +512,11 @@ function AddAfter({ point, onAdd }: { point: AddPoint; onAdd(prerequisiteId: str
       >
         <button
           type="button"
-          onClick={() => onAdd(point.prerequisiteId)}
+          onClick={() => {
+            spent.current = true;
+            setArmed(false);
+            onAdd(point.prerequisiteId);
+          }}
           aria-label={`Add a task waiting on "${point.prerequisiteName}"`}
           className="pressable flex h-full w-full items-center justify-center"
         >
@@ -807,6 +893,7 @@ function geometryOf(layout: BlockerLayout, heights: Map<string, number> | null):
       });
       addPoints.push({
         id: `stub:${node.task.id}`,
+        kind: 'stub',
         prerequisiteId: node.task.id,
         prerequisiteName: node.task.name,
         left: right,
@@ -872,6 +959,7 @@ function addPointAt(
   const circleBottom = ADD_BUTTON / 2 + ADD_CIRCLE / 2;
   return {
     id,
+    kind: 'edge',
     prerequisiteId,
     prerequisiteName,
     left: x - ADD_HOTSPOT_WIDTH / 2,
@@ -955,6 +1043,18 @@ function BlockersError() {
       {loadErrorMessage('your dependency trees', failure)}
     </ErrorLine>
   );
+}
+
+/** Whether a fresh measurement says anything the last one did not. */
+function sameHeights(
+  previous: Map<string, number> | null,
+  next: Map<string, number>,
+): boolean {
+  if (previous === null || previous.size !== next.size) return false;
+  for (const [id, height] of next) {
+    if (previous.get(id) !== height) return false;
+  }
+  return true;
 }
 
 function byTaskPosition(a: Task, b: Task): number {
