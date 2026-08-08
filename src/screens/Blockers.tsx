@@ -379,7 +379,19 @@ function DependencyBoard({
                   else nodeRefs.current.delete(node.task.id);
                 }}
                 data-blocker-node={node.task.id}
-                className="absolute left-0 top-0"
+                // `flex flex-col` is load-bearing, not styling. Everything
+                // this screen draws — where an edge starts, where it ends,
+                // where a stub leaves — is derived from this element's
+                // measured box, so the card the user actually sees has to *be*
+                // this box rather than something shorter sitting inside it.
+                // Stretch is what guarantees that for any content: the chain
+                // from here to `.blocker-node` carries no percentage height,
+                // and a percentage height was exactly the bug — `h-full`
+                // against a parent with a `min-height` and no height resolves
+                // to `auto`, so a node whose content fell short of the floor
+                // painted an undersized card at the top of a full-height box
+                // and every line into and out of it met it below its middle.
+                className="absolute left-0 top-0 flex flex-col"
                 style={{
                   width: NODE_WIDTH,
                   // A floor, not a fixed height — §7's line-clamp used to cut
@@ -391,7 +403,7 @@ function DependencyBoard({
                   transform: `translate3d(${x}px, ${y}px, 0)`,
                 }}
               >
-                <TaskDetails task={node.task} className="block h-full" touchLongPress>
+                <TaskDetails task={node.task} className="flex flex-1 flex-col" touchLongPress>
                   <BlockerNodeCard
                     node={node}
                     lookup={lookup}
@@ -560,7 +572,7 @@ function BlockerNodeCard({
 
   return (
     <div
-      className="blocker-node theme-eased flex h-full items-stretch rounded-control bg-surface"
+      className="blocker-node theme-eased flex flex-1 items-stretch rounded-control bg-surface"
       data-state={done ? 'completed' : gated ? 'gated' : 'open'}
       style={{
         border: done
@@ -577,7 +589,13 @@ function BlockerNodeCard({
       <button
         type="button"
         onClick={() => onOpen(task)}
-        className="blocker-node-open pressable min-w-0 flex-1 rounded-control py-3 pr-3 text-left"
+        // `justify-center` for the same reason the card stretches: a node
+        // whose content is shorter than the floor now fills its box, so its
+        // name sits in the middle of that box rather than pinned to the top
+        // of it — which is also where every line into and out of the node
+        // meets it.
+        className="blocker-node-open pressable flex min-w-0 flex-1 flex-col justify-center
+                   rounded-control py-3 pr-3 text-left"
         aria-label={`Edit ${task.name}`}
       >
         <span
