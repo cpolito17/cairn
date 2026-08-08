@@ -107,12 +107,33 @@ export interface TaskComposerProps {
   task?: Task | undefined;
   /** Create mode: the board the task lands on. */
   boardId: string;
+  /**
+   * Create mode: the task the new one starts out waiting on. Blockers opens the
+   * composer from a point on a dependency line, and the whole meaning of that
+   * gesture is "something after *this*" — so the link is seeded rather than
+   * left for the user to re-find in the select. It is a starting value, not a
+   * lock: the field is the same one, and clearing it is a normal edit.
+   */
+  initialDependsOn?: string | undefined;
   context: Context;
 }
 
-export function TaskComposer({ open, onClose, task, boardId, context }: TaskComposerProps) {
+export function TaskComposer({
+  open,
+  onClose,
+  task,
+  boardId,
+  initialDependsOn,
+  context,
+}: TaskComposerProps) {
   const editing = task !== undefined;
-  const initial = useMemo(() => draftOf(task), [task]);
+  const initial = useMemo(() => {
+    const draft = draftOf(task);
+    // Edit mode is seeded by the task itself; a caller's suggestion has no
+    // standing against what is already stored.
+    if (task === undefined && initialDependsOn) draft.dependsOn = initialDependsOn;
+    return draft;
+  }, [task, initialDependsOn]);
   const [draft, setDraft] = useState<Draft>(initial);
   const [nameError, setNameError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
