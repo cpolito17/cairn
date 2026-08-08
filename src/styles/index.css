@@ -348,6 +348,36 @@
       background-color 160ms var(--ease-out);
   }
 
+  /* The "add a task after this one" plus (Blockers.tsx). The hotspot is a
+     transparent box spanning the line and the circle above it, so the pointer
+     never crosses dead space on the way up — the reveal is one `:hover`.
+
+     Touch gets it outright at reduced contrast: there is no hover to earn it
+     with, and a control that can only be reached by a gesture the device
+     cannot perform is not a control. On a fine pointer it starts absent and
+     rises 4px into place, well inside §8.5's 300ms ceiling; reduced motion
+     keeps the fade and drops the rise, which the global property cut in
+     `@layer base` already does without a rule here. */
+  .blocker-add {
+    opacity: 0.55;
+    transition:
+      opacity 160ms var(--ease-out),
+      transform 160ms var(--ease-out);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .blocker-add {
+      opacity: 0;
+      transform: translate3d(0, 4px, 0);
+    }
+
+    .blocker-add-hotspot:hover .blocker-add,
+    .blocker-add-hotspot:focus-within .blocker-add {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
   @media (max-width: 480px) {
     .blockers-sidebar {
       width: 168px;
