@@ -14,6 +14,7 @@
 | Password secret | **Not yet** — see `PASSWORD-SETUP.md`, needed before issue 2 |
 | `0006_push_notifications.sql` on the remote DB | **Not yet.** Additive and safe — two new tables, nothing altered. Deploying without it makes every notification path fail on `no such table`, and nothing else |
 | VAPID secrets | **Not yet** — see `NOTIFICATIONS.md`. Their absence is handled: the app runs with notifications simply unavailable |
+| `0007_multiple_dependencies.sql` on the remote DB | **Not yet.** One-way and destructive — it drops `tasks.depends_on`. Back up first, and migrate *before* deploying, exactly as `0003` requires |
 
 The remote schema was applied through the Cloudflare API rather than
 `wrangler d1 migrations apply --remote`, so the `d1_migrations` bookkeeping row
@@ -184,6 +185,32 @@ notifications are off or nothing is due, and logs only on an actual send.
 
 Setup for the notification feature itself — VAPID keys, permissions, the
 iOS home-screen requirement — is in `NOTIFICATIONS.md`.
+
+### `0007_multiple_dependencies.sql` is one-way
+
+It moves task dependencies into a `task_dependencies` join table and then
+**drops `tasks.depends_on`**. There is no down migration and there cannot be a
+general one: a task with three prerequisites has no single value to put back.
+
+- **Take a backup first** — `npx wrangler d1 export cairn --remote --output
+  cairn-pre-0007.sql`.
+- **Migrate before deploying.** The new Worker reads `task_dependencies`, which
+  the unmigrated database does not have, and the old Worker selects
+  `depends_on`, which the migrated one no longer has. `npm run deploy` already
+  runs them as one command, in the right order.
+
+Two details verified against a database built from 0001–0006:
+
+- The `DROP INDEX idx_tasks_depends_on` before the `ALTER TABLE ... DROP COLUMN`
+  is **not optional**. SQLite refuses to drop a column an index still names, with
+  `error in index idx_tasks_depends_on after drop column`.
+- The backfill skips self-links and links to tasks that no longer exist, so a
+  bad row cannot be carried into a schema whose whole point is that the graph is
+  acyclic.
+
+Cascade behaviour was checked in both directions: deleting a prerequisite drops
+the links pointing at it and leaves its dependents alive and released, and
+deleting a dependent removes the links it owned.
 
 ### Checking what the live database actually has
 

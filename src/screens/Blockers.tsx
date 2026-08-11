@@ -27,7 +27,12 @@ import {
   type BlockerLayout,
   type BlockerNode,
 } from '../../shared/blockers';
-import { blockedBy, lookupOf, type TaskLookup } from '../../shared/dependencies';
+import {
+  blockedBy,
+  lookupOf,
+  waitingSummary,
+  type TaskLookup,
+} from '../../shared/dependencies';
 import { boardProgress, type BoardProgress } from '../../shared/progress';
 import type { Board, Task } from '../../shared/types';
 import { toggleComplete } from '../lib/actions';
@@ -117,6 +122,16 @@ interface AddPoint {
   /** Drawn from the circle down to the line, on an edge point only. */
   connectorTop: number | null;
   connectorHeight: number;
+  /**
+   * True for the stub points at the end of a chain, which stay visible without
+   * a hover.
+   *
+   * The edge points can afford to wait for a hover: the line they sit on is
+   * already drawn, so the picture is complete without them. A stub is not — it
+   * is a line trailing off into nothing, drawn *for* the plus — so hiding its
+   * plus at rest left a dangling stroke and no way to guess what it was for.
+   */
+  restingVisible?: boolean;
 }
 
 interface Geometry {
@@ -152,7 +167,7 @@ export function Blockers() {
           tasks,
           layout,
           progress: boardProgress(tasks),
-          hasTrees: layout.trees.length > 0,
+          hasTrees: layout.graphs.length > 0,
         };
       })
       .sort((a, b) => Number(b.hasTrees) - Number(a.hasTrees));
@@ -243,8 +258,8 @@ function DependencyBoard({
   const [nodeHeights, setNodeHeights] = useState<Map<string, number> | null>(null);
   useLayoutEffect(() => {
     const measured = new Map<string, number>();
-    for (const tree of model.layout.trees) {
-      for (const node of tree.nodes) {
+    for (const graph of model.layout.graphs) {
+      for (const node of graph.nodes) {
         const el = nodeRefs.current.get(node.task.id);
         if (el) measured.set(node.task.id, el.getBoundingClientRect().height);
       }
@@ -394,7 +409,7 @@ function DependencyBoard({
 function AddAfter({ point, onAdd }: { point: AddPoint; onAdd(prerequisiteId: string): void }) {
   return (
     <div
-      className="blocker-add-hotspot absolute"
+      className={`blocker-add-hotspot absolute${point.restingVisible ? ' blocker-add-resting' : ''}`}
       style={{
         left: point.left,
         top: point.top,
@@ -467,8 +482,8 @@ function BlockerNodeCard({
 }) {
   const task = node.task;
   const done = task.completedAt !== null;
-  const waiting = done ? null : blockedBy(task, lookup);
-  const gated = waiting !== null;
+  const waiting = done ? [] : blockedBy(task, lookup);
+  const gated = waiting.length > 0;
   const overdue = formatOverdue(task, now);
   const due = overdue ?? formatDue(task, now);
 
@@ -487,7 +502,7 @@ function BlockerNodeCard({
           'background-color 200ms var(--ease-out), border-color 200ms var(--ease-out), color 200ms var(--ease-out), box-shadow 200ms var(--ease-out)',
       }}
     >
-      <TaskCheckbox task={task} waitingOn={waiting?.name ?? null} />
+      <TaskCheckbox task={task} waitingOn={waitingSummary(waiting)} />
       <button
         type="button"
         onClick={() => onOpen(task)}
@@ -687,120 +702,165 @@ function TaskCheckbox({
  * exact, not an approximation, so nothing shifts for a tree with no wrapped
  * names in it.
  */
+/**
+ * Rows and depths from `shared/blockers.ts`, turned into pixels.
+ *
+ * The vertical pass is where a graph differs most from the forest this used to
+ * draw. With one prerequisite per task, a parent could be centred exactly over
+ * its children and that was the end of it. With several, no single position
+ * satisfies every edge, so the placement is two sweeps over the columns:
+ *
+ *   1. **Left to right**, each node pulled to the average centre of the
+ *      prerequisites already placed to its left, then pushed down if that would
+ *      overlap the node above it in its own column. This is what makes an edge
+ *      travel roughly horizontally instead of diving across the picture.
+ *   2. **Right to left**, each node pulled towards the average centre of its
+ *      dependents, within the room its neighbours leave it. Without this pass a
+ *      task with two dependents sits level with the first of them; with it, it
+ *      sits between them, which is what the eye expects of a fork.
+ *
+ * Neither sweep moves a node out of its layer's order, so the ordering
+ * `shared/blockers.ts` computed — and its stability — survives.
+ */
 function geometryOf(layout: BlockerLayout, heights: Map<string, number> | null): Geometry {
   const columnStride = NODE_WIDTH + COLUMN_GAP;
-  const maxDepth = layout.trees.reduce((max, tree) => Math.max(max, tree.maxDepth), 0);
+  const maxDepth = layout.graphs.reduce((max, graph) => Math.max(max, graph.maxDepth), 0);
   // `ADD_TRAIL` is the room the deepest column's stubs and their plus buttons
   // need to the right of the last node; every shallower column already has a
-  // `COLUMN_GAP` of it, and the two are equal by construction.
+  // `COLUMN_GAP` of it.
   const width =
     TREE_PADDING_X * 2 + NODE_WIDTH * (maxDepth + 1) + COLUMN_GAP * maxDepth + ADD_TRAIL;
   const nodes: PositionedNode[] = [];
   const edges: PositionedEdge[] = [];
   const stubs: PositionedStub[] = [];
   const addPoints: AddPoint[] = [];
-  let treeTop = TREE_PADDING_Y;
+  let graphTop = TREE_PADDING_Y;
 
-  const heightOf = (taskId: string): number => Math.max(NODE_HEIGHT, heights?.get(taskId) ?? NODE_HEIGHT);
+  const heightOf = (taskId: string): number =>
+    Math.max(NODE_HEIGHT, heights?.get(taskId) ?? NODE_HEIGHT);
 
-  for (const tree of layout.trees) {
-    const byTaskId = new Map(tree.nodes.map((node) => [node.task.id, node]));
-    // Relative to this tree's own top starting at 0 — the running `treeTop`
-    // is added back in once the whole tree is placed, after the shift below
-    // is known. Computing it that way, rather than seeding leaves straight
-    // from `treeTop`, is what makes the shift a single subtraction instead of
-    // a second walk over every node.
-    const relativeTop = new Map<string, number>();
+  for (const graph of layout.graphs) {
+    const byTaskId = new Map(graph.nodes.map((node) => [node.task.id, node]));
+    // Relative to this component's own top starting at 0; the running
+    // `graphTop` is added once the whole thing is placed and its own extent is
+    // known.
+    const top = new Map<string, number>();
+    const centreOf = (id: string): number => (top.get(id) as number) + heightOf(id) / 2;
 
-    // Leaves stack in the tidy-tree's own top-to-bottom order. `node.y` from
-    // `shared/blockers.ts` already carries it — each leaf's sequential index
-    // in that walk — so sorting by it and then stacking by real height keeps
-    // the visual order `layoutTree` intended instead of whatever order this
-    // file's own flat `tree.nodes` array happens to list them in.
-    const leaves = tree.nodes
-      .filter((node) => node.dependentIds.length === 0)
-      .sort((a, b) => a.y - b.y);
-    let cursor = 0;
-    for (const leaf of leaves) {
-      relativeTop.set(leaf.task.id, cursor);
-      cursor += heightOf(leaf.task.id) + ROW_GAP;
-    }
+    /**
+     * Place one column in its given order, each node as near its wish as the
+     * node above it allows. Only ever pushes down, so the order is preserved
+     * exactly; the whole component is normalised afterwards.
+     */
+    const placeLayer = (ids: string[], wish: (id: string) => number | null) => {
+      let floor = -Infinity;
+      for (const id of ids) {
+        const height = heightOf(id);
+        const wanted = wish(id);
+        const desired = wanted === null ? (top.get(id) ?? 0) : wanted - height / 2;
+        const placed = Math.max(desired, floor);
+        top.set(id, placed);
+        floor = placed + height + ROW_GAP;
+      }
+    };
 
-    // Every parent centres over the vertical midpoint of its first and last
-    // dependant, same as the row-index math already did — post-order, since
-    // the formula reads its children's placed positions, which the leaf pass
-    // above already seeded.
-    function place(taskId: string): number {
-      const existing = relativeTop.get(taskId);
-      if (existing !== undefined) return existing;
-      const children = byTaskId.get(taskId)?.dependentIds ?? [];
-      const firstMid = place(children[0]) + heightOf(children[0]) / 2;
-      const lastMid = place(children[children.length - 1]) + heightOf(children[children.length - 1]) / 2;
-      const placed = (firstMid + lastMid) / 2 - heightOf(taskId) / 2;
-      relativeTop.set(taskId, placed);
-      return placed;
-    }
-    for (const node of tree.nodes) place(node.task.id);
-
-    // A short chain topped by a node several wrapped lines tall centres that
-    // tall node over its one short child and can come out above where the
-    // tree is meant to start — there is no leaf above it to have claimed that
-    // space in the first place. Shifting every node in the tree down by
-    // however far negative the least of them went keeps the centring intact
-    // (nothing here is clamped independently) while guaranteeing the whole
-    // tree lands inside its own bounds.
-    const minRelativeTop = Math.min(
-      ...tree.nodes.map((node) => relativeTop.get(node.task.id) as number),
-    );
-    const shift = treeTop - minRelativeTop;
-    const pixelTop = (taskId: string): number => (relativeTop.get(taskId) as number) + shift;
-
-    for (const node of tree.nodes) {
-      nodes.push({
-        node,
-        x: TREE_PADDING_X + node.depth * columnStride,
-        y: pixelTop(node.task.id),
+    // Sweep one: left to right, pulled by prerequisites.
+    for (let depth = 0; depth <= graph.maxDepth; depth += 1) {
+      placeLayer(graph.layers[depth], (id) => {
+        const prerequisiteIds = byTaskId.get(id)?.prerequisiteIds ?? [];
+        const placed = prerequisiteIds.filter((entry) => top.has(entry));
+        if (placed.length === 0) return null;
+        return placed.reduce((sum, entry) => sum + centreOf(entry), 0) / placed.length;
       });
     }
 
-    for (const child of tree.nodes) {
-      if (child.parentId === null) continue;
-      const parent = byTaskId.get(child.parentId);
-      if (!parent) continue;
-
-      const startX = TREE_PADDING_X + parent.depth * columnStride + NODE_WIDTH;
-      const startY = pixelTop(child.parentId) + heightOf(child.parentId) / 2;
-      const endX = TREE_PADDING_X + child.depth * columnStride;
-      const endY = pixelTop(child.task.id) + heightOf(child.task.id) / 2;
-      const controlX = startX + (endX - startX) / 2;
-      edges.push({
-        id: `${child.parentId}:${child.task.id}`,
-        parentId: child.parentId,
-        childId: child.task.id,
-        path: `M ${startX} ${startY} C ${controlX} ${startY}, ${controlX} ${endY}, ${endX} ${endY}`,
+    // Sweep two: right to left, balancing *both* sides.
+    //
+    // Pulling only towards dependents looks right on a chain and wrong on a
+    // fork: the task two branches converge into gets dragged into line with
+    // whatever is downstream of it, and stops sitting between the two things it
+    // is actually waiting for. Averaging over every neighbour in both
+    // directions keeps a join centred on its branches while still letting a
+    // long tail straighten out.
+    for (let depth = graph.maxDepth - 1; depth >= 0; depth -= 1) {
+      placeLayer(graph.layers[depth], (id) => {
+        const node = byTaskId.get(id);
+        const neighbours = [...(node?.prerequisiteIds ?? []), ...(node?.dependentIds ?? [])].filter(
+          (entry) => top.has(entry),
+        );
+        if (neighbours.length === 0) return null;
+        return neighbours.reduce((sum, entry) => sum + centreOf(entry), 0) / neighbours.length;
       });
+    }
 
-      // The curve's own midpoint, not the midpoint of its endpoints — which
-      // for this particular cubic are the same thing: both control points sit
-      // on the vertical halfway line, so the t=0.5 term
-      // (P0 + 3P1 + 3P2 + P3) / 8 collapses to the average of the ends.
-      addPoints.push(
-        addPointAt(
-          `edge:${child.parentId}:${child.task.id}`,
-          child.parentId,
-          parent.task.name,
-          (startX + endX) / 2,
-          (startY + endY) / 2,
-        ),
+    // A component whose pulls sent its topmost node above where it should start
+    // is shifted down bodily, which keeps every relative position intact while
+    // guaranteeing it lands inside its own bounds.
+    const minTop = Math.min(...graph.nodes.map((node) => top.get(node.task.id) as number));
+    const shift = graphTop - minTop;
+    const pixelTop = (taskId: string): number => (top.get(taskId) as number) + shift;
+    const pixelCentre = (taskId: string): number => pixelTop(taskId) + heightOf(taskId) / 2;
+    const columnX = (depth: number): number => TREE_PADDING_X + depth * columnStride;
+
+    for (const node of graph.nodes) {
+      nodes.push({ node, x: columnX(node.depth), y: pixelTop(node.task.id) });
+    }
+
+    // Edges, one per prerequisite. Several arriving at the same task all end at
+    // its left edge, so they visibly *flow into* it rather than merely stopping
+    // near it — which is the whole point of drawing a fan-in.
+    for (const node of graph.nodes) {
+      for (const prerequisiteId of node.prerequisiteIds) {
+        const prerequisite = byTaskId.get(prerequisiteId);
+        if (!prerequisite) continue;
+
+        const startX = columnX(prerequisite.depth) + NODE_WIDTH;
+        const startY = pixelCentre(prerequisiteId);
+        const endX = columnX(node.depth);
+        const endY = pixelCentre(node.task.id);
+        // Control points on the vertical halfway line. For a one-column edge
+        // this is the same curve the forest drew; for a longer one it keeps the
+        // approach into the dependent horizontal, so the arrow of the thing is
+        // still legible where it matters.
+        const controlX = startX + (endX - startX) / 2;
+
+        edges.push({
+          id: `${prerequisiteId}:${node.task.id}`,
+          parentId: prerequisiteId,
+          childId: node.task.id,
+          path: `M ${startX} ${startY} C ${controlX} ${startY}, ${controlX} ${endY}, ${endX} ${endY}`,
+        });
+
+        // The plus belongs on edges that cross exactly one gap. A longer edge
+        // has its midpoint somewhere over an intermediate column, where a
+        // button would land on top of an unrelated node — and the task it would
+        // create is reachable from the prerequisite's own affordance anyway.
+        if (node.depth - prerequisite.depth === 1) {
+          addPoints.push(
+            addPointAt(
+              `edge:${prerequisiteId}:${node.task.id}`,
+              prerequisiteId,
+              prerequisite.task.name,
+              (startX + endX) / 2,
+              (startY + endY) / 2,
+            ),
+          );
+        }
+      }
+    }
+
+    // Every node needs one way to hang a new task off it. A node with a
+    // one-column dependent already got that from the edge above; anything else
+    // — a leaf, or a node whose dependents are all further right — grows a stub
+    // of its own, which is also the only at-rest hint the affordance exists.
+    for (const node of graph.nodes) {
+      const hasAdjacentEdge = node.dependentIds.some(
+        (id) => (byTaskId.get(id)?.depth ?? 0) - node.depth === 1,
       );
-    }
+      if (hasAdjacentEdge) continue;
 
-    // A node nothing waits on has no line to hover, so it gets one: a short
-    // stub off its right edge, always drawn, leading to where its plus appears.
-    for (const node of tree.nodes) {
-      if (node.dependentIds.length > 0) continue;
-      const right = TREE_PADDING_X + node.depth * columnStride + NODE_WIDTH;
-      const centreY = pixelTop(node.task.id) + heightOf(node.task.id) / 2;
+      const right = columnX(node.depth) + NODE_WIDTH;
+      const centreY = pixelCentre(node.task.id);
       stubs.push({
         id: `stub:${node.task.id}`,
         path: `M ${right} ${centreY} L ${right + ADD_STUB} ${centreY}`,
@@ -819,23 +879,23 @@ function geometryOf(layout: BlockerLayout, heights: Map<string, number> | null):
         buttonTop: 0,
         connectorTop: null,
         connectorHeight: 0,
+        // The at-rest affordance. Edge points appear on hover because the line
+        // they belong to is already visible; this one *is* the visible thing,
+        // and a stub trailing off into nothing was the whole of the hint.
+        restingVisible: true,
       });
     }
 
-    // The bottommost edge any node in this tree reaches — a tall node near
-    // the end can extend past where the last leaf alone would have put it,
-    // and the old formula (leaf count times a fixed row height) had no way to
-    // know that because every row was the same height by definition.
-    const treeBottom = tree.nodes.reduce(
+    const graphBottom = graph.nodes.reduce(
       (max, node) => Math.max(max, pixelTop(node.task.id) + heightOf(node.task.id)),
-      treeTop,
+      graphTop,
     );
-    treeTop = treeBottom + TREE_GAP;
+    graphTop = graphBottom + TREE_GAP;
   }
 
   const height = Math.max(
     NODE_HEIGHT + TREE_PADDING_Y * 2,
-    treeTop - TREE_GAP + TREE_PADDING_Y,
+    graphTop - TREE_GAP + TREE_PADDING_Y,
   );
   const leftmost = nodes
     .filter(({ node }) => node.task.completedAt === null)

@@ -37,7 +37,7 @@ import { prefersReducedMotion } from '../lib/motion';
 import { useActiveTasks, useBlockedBy, useBoardProgress, useStore } from '../lib/store';
 import { TaskDetails } from './TaskDetails';
 import { boardPath, Link } from '../lib/router';
-import { isGated, lookupOf } from '../../shared/dependencies';
+import { isGated, lookupOf, waitingSummary } from '../../shared/dependencies';
 import type { Board, Task } from '../../shared/types';
 import { NumberTicker, ProgressBar } from './ProgressBar';
 import { boardAccentColor } from '../lib/boardAccent';
@@ -195,12 +195,12 @@ function PreviewRow({ task, onEditTask }: { task: Task; onEditTask(task: Task): 
             style={{ backgroundColor: 'var(--accent)' }}
           />
         )}
-        {waiting && (
+        {waiting.length > 0 && (
           <LinkSimple size={12} className="mr-1 inline-block shrink-0 align-middle" />
         )}
         {task.name}
       </button>
-      <CompleteButton task={task} waitingOn={waiting?.name ?? null} />
+      <CompleteButton task={task} waitingOn={waitingSummary(waiting)} />
     </TaskDetails>
   );
 }

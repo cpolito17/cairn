@@ -44,6 +44,7 @@ import { formatDue, formatDuration, formatOverdue } from '../lib/dates';
 import { keyboardMotionActive, OUT } from '../lib/motion';
 import { useBlockedBy } from '../lib/store';
 import type { Task } from '../../shared/types';
+import { waitingList } from '../../shared/dependencies';
 
 /** Long enough that crossing a list does not flash five cards. */
 const OPEN_DELAY_MS = 260;
@@ -244,10 +245,10 @@ function DetailsCard({ task, placement }: { task: Task; placement: Placement }) 
       </Row>,
     );
   }
-  if (waiting) {
+  if (waiting.length > 0) {
     rows.push(
       <Row key="waiting" icon={<LinkSimple size={14} />}>
-        Waiting on {waiting.name}
+        Waiting on {waitingList(waiting)}
       </Row>,
     );
   }

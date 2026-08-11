@@ -68,7 +68,7 @@ interface TaskFields {
   difficulty: Difficulty | null;
   priority: boolean;
   blocked: boolean;
-  dependsOn: string;
+  dependsOn: string[];
 }
 
 interface EventFields {
@@ -177,7 +177,7 @@ export function CreateSlotComposer({
         difficulty: task.difficulty,
         priority: task.priority,
         blocked: task.blocked,
-        dependsOn: task.dependsOn || null,
+        dependsOn: task.dependsOn,
       });
     } else {
       if (trimmed === '') {
@@ -436,7 +436,7 @@ function emptyTaskFields(): TaskFields {
     difficulty: null,
     priority: false,
     blocked: false,
-    dependsOn: '',
+    dependsOn: [],
   };
 }
 

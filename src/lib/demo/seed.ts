@@ -79,10 +79,18 @@ interface SeedTask {
   priority?: true;
   /** The hand-asserted "I am stuck" flag — independent of `after`. */
   blocked?: true;
-  /** The prerequisite's key, on this same board. */
-  after?: string;
+  /**
+   * The prerequisite's key, or several, on this same board. A task waits for
+   * *all* of them.
+   */
+  after?: string | string[];
   /** Completed this many days ago. */
   done?: number;
+}
+
+/** One prerequisite key or several, as a list. */
+function toList(after: string | string[]): string[] {
+  return Array.isArray(after) ? after : [after];
 }
 
 interface SeedBoard {
@@ -483,7 +491,9 @@ const BOARDS: SeedBoard[] = [
         key: 'deal',
         name: 'Deal with the suitors',
         notes: 'Budget the whole afternoon.',
-        after: 'bow',
+        // Two prerequisites, and the reason the demo has a fan-in to draw:
+        // the contest has to be won *and* the doors shut before this starts.
+        after: ['bow', 'doors'],
         difficulty: 5,
         minutes: 240,
         sched: [6, '14:00'],
@@ -711,7 +721,10 @@ export function buildDemoState(now = Date.now()): AppState {
         difficulty: task.difficulty ?? null,
         priority: task.priority ?? false,
         blocked: task.blocked ?? false,
-        dependsOn: task.after === undefined ? null : `demo-task-${seed.key}-${task.after}`,
+        dependsOn:
+          task.after === undefined
+            ? []
+            : toList(task.after).map((after) => `demo-task-${seed.key}-${after}`),
         position: taskPosition,
         createdAt: addDays(today, -90),
         // Completions land mid-morning of their day rather than at midnight, so

@@ -128,14 +128,21 @@ export interface Task {
    */
   blocked: boolean;
   /**
-   * The task this one is waiting on, or null. Always another task on the *same
-   * board*, never itself, and never a link that would close a cycle — the
-   * Worker enforces all three.
+   * The tasks this one is waiting on. Empty when nothing gates it.
    *
-   * A task whose prerequisite is incomplete cannot be completed; see
+   * Every entry is another task on the *same board*, never itself, and never a
+   * link that would close a cycle — the Worker enforces all three. Order is
+   * oldest link first and is stable, so a node's incoming edges do not
+   * reshuffle between two renders of the same data.
+   *
+   * A task with *any* incomplete prerequisite cannot be completed; see
    * `shared/dependencies.ts`, which is the only place that rule is written.
+   *
+   * This was a single nullable id until the §14 addendum. One prerequisite made
+   * each board a forest, which is what the original Blockers layout was built
+   * on; a set makes it a directed acyclic graph.
    */
-  dependsOn: string | null;
+  dependsOn: string[];
   /** Fractional index within its board's active list. */
   position: string;
   createdAt: number;

@@ -11,6 +11,7 @@
  * makes it impossible to validate a field and then forget to check the answer.
  */
 
+import { normalizeDependsOn } from '../shared/dependencies';
 import { crossesMidnight, effectiveMinutes, isSnapped } from '../shared/schedule';
 import { isDayMinute, isMomentInDay, isPlannerSort, isPlannerView } from '../shared/settings';
 import {
@@ -93,6 +94,41 @@ export function nullableId(value: unknown, label: string): string | null {
     throw new BadRequest(`${label} must be an id or null`);
   }
   return value;
+}
+
+/**
+ * The most prerequisites one task may hold.
+ *
+ * Not a domain rule — nothing about the graph breaks at 26 — but an unbounded
+ * array from an untrusted body becomes an unbounded batch of inserts, and a
+ * board where one task waits on fifty others is not a board anyone can read.
+ */
+export const MAX_DEPENDENCIES = 25;
+
+/**
+ * A task's prerequisite list: an array of ids, de-duplicated, self-links
+ * dropped.
+ *
+ * Absent and `null` both mean "no prerequisites", so a client that has not
+ * heard of the field, and one clearing it, say the same thing. Whether each id
+ * is a *legal* prerequisite — same board, no cycle — is decided in
+ * `routes/tasks.ts`, which is the only place that can see the other tasks.
+ */
+export function dependsOnList(value: unknown, taskId: string): string[] {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value)) throw new BadRequest('dependsOn must be an array of task ids');
+  if (value.length > MAX_DEPENDENCIES) {
+    throw new BadRequest(`a task may wait on at most ${MAX_DEPENDENCIES} other tasks`);
+  }
+
+  const ids = value.map((entry, index) => {
+    if (typeof entry !== 'string' || entry.length === 0) {
+      throw new BadRequest(`dependsOn[${index}] must be a task id`);
+    }
+    return entry;
+  });
+
+  return normalizeDependsOn(taskId, ids);
 }
 
 export function nullableText(value: unknown, label: string): string | null {

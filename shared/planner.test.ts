@@ -46,7 +46,7 @@ function task(id: string, patch: Partial<Task> = {}): Task {
     difficulty: null,
     priority: false,
     blocked: false,
-    dependsOn: null,
+    dependsOn: [],
     position: 'a0',
     createdAt: 0,
     completedAt: null,

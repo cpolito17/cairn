@@ -23,6 +23,7 @@ import {
   insertTask,
   selectBoard,
   selectTask,
+  replaceDependencies,
   selectTasksOfBoard,
   updateTask,
 } from '../db';
@@ -40,38 +41,55 @@ import {
   nullableDueDate,
   nullableDueTime,
   nullableDurationMinutes,
-  nullableId,
   nullableScheduledAt,
   nullableText,
+  dependsOnList,
   requiredId,
   requiredName,
   requiredPosition,
 } from '../validate';
 
 /**
- * Whether `dependsOn` is a legal prerequisite for a task that will look like
- * `resulting` once the write lands.
+ * Whether every id in `dependsOn` is a legal prerequisite for a task that will
+ * look like `resulting` once the write lands.
  *
  * The check runs against the *resulting* state rather than the stored one,
- * which matters when a single PATCH both moves a task and sets its dependency:
- * the board it is being validated against has to be the board it is going to.
+ * which matters when a single PATCH both moves a task and sets its
+ * dependencies: the board they are validated against has to be the board it is
+ * going to.
  *
- * `canDependOn` is the same function the composer builds its dropdown from, so
- * the client cannot offer an option the server would then refuse.
+ * **The links are checked one at a time, each against the set accepted so far.**
+ * A set validated all-at-once could smuggle a cycle past the check — two links
+ * that are individually fine can close a loop together — so the working copy
+ * grows a link at a time and each new one is tested against a task that already
+ * carries its predecessors. That is also exactly the order the user added them
+ * in, so the link a refusal is about is the one they just chose.
+ *
+ * `canDependOn` is the same function the composer builds its options from, so
+ * the client cannot offer something the server would then refuse.
  */
-async function dependencyIsLegal(
+async function illegalDependency(
   env: Env,
   resulting: Task,
-  dependsOn: string,
-): Promise<boolean> {
-  const siblings = await selectTasksOfBoard(env.DB, resulting.boardId);
-  const prerequisite = siblings.find((sibling) => sibling.id === dependsOn);
-  if (!prerequisite) return false;
+  dependsOn: readonly string[],
+): Promise<string | null> {
+  if (dependsOn.length === 0) return null;
 
-  // The lookup carries the resulting task rather than the stored one, so a
-  // cycle walk that comes back around sees the link being proposed.
-  const lookup = lookupOf([...siblings.filter((s) => s.id !== resulting.id), resulting]);
-  return canDependOn(resulting, prerequisite, lookup);
+  const siblings = await selectTasksOfBoard(env.DB, resulting.boardId);
+  const others = siblings.filter((sibling) => sibling.id !== resulting.id);
+
+  let working: Task = { ...resulting, dependsOn: [] };
+  for (const id of dependsOn) {
+    const prerequisite = others.find((sibling) => sibling.id === id);
+    if (!prerequisite) return id;
+
+    // The lookup carries the working copy rather than the stored task, so a
+    // cycle search that comes back around sees the links being proposed.
+    if (!canDependOn(working, prerequisite, lookupOf([...others, working]))) return id;
+    working = { ...working, dependsOn: [...working.dependsOn, id] };
+  }
+
+  return null;
 }
 
 async function create(request: Request, env: Env): Promise<Response> {
@@ -99,7 +117,9 @@ async function create(request: Request, env: Env): Promise<Response> {
     difficulty: absent(body, 'difficulty') ? null : nullableDifficulty(body.difficulty),
     priority: absent(body, 'priority') ? false : boolean(body.priority, 'priority'),
     blocked: absent(body, 'blocked') ? false : boolean(body.blocked, 'blocked'),
-    dependsOn: absent(body, 'dependsOn') ? null : nullableId(body.dependsOn, 'dependsOn'),
+    // The id is minted by the insert, so there is nothing yet for a self-link
+    // to point at; the empty string is a placeholder no task can match.
+    dependsOn: dependsOnList(body.dependsOn, ''),
     position: requiredPosition(body.position),
   };
 
@@ -107,16 +127,24 @@ async function create(request: Request, env: Env): Promise<Response> {
   // foreign-key failure surfacing as a 500.
   if (!(await selectBoard(env.DB, boardId))) return apiError('board not found', 404);
 
-  if (draft.dependsOn !== null) {
+  if (draft.dependsOn.length > 0) {
     // A task being created cannot be the target of a cycle — nothing depends on
-    // it yet — so this is only "does it exist, and is it on this board".
+    // it yet — so this is only "do they exist, and are they on this board".
     const siblings = await selectTasksOfBoard(env.DB, boardId);
-    if (!siblings.some((sibling) => sibling.id === draft.dependsOn)) {
-      return apiError('dependsOn must be another task on the same board', 400);
+    const known = new Set(siblings.map((sibling) => sibling.id));
+    if (draft.dependsOn.some((entry) => !known.has(entry))) {
+      return apiError('dependsOn must be other tasks on the same board', 400);
     }
   }
 
-  return json(await insertTask(env.DB, draft), { status: 201 });
+  const task = await insertTask(env.DB, draft);
+  // The edges live in their own table, so they are their own write. The task
+  // returned carries them, because the client applies this response over its
+  // optimistic copy and a response with no links would erase them on screen.
+  if (draft.dependsOn.length > 0) {
+    await replaceDependencies(env.DB, task.id, draft.dependsOn);
+  }
+  return json({ ...task, dependsOn: draft.dependsOn }, { status: 201 });
 }
 
 async function patch(request: Request, env: Env, id: string): Promise<Response> {
@@ -168,23 +196,25 @@ async function patch(request: Request, env: Env, id: string): Promise<Response> 
   }
 
   // A dependency only means anything within one board, so moving a task off its
-  // board drops the link rather than leaving a gate pointing somewhere the user
-  // can no longer see. An explicit `dependsOn` in the same request still wins —
-  // that is a move and a re-link, and it is validated against the destination.
+  // board drops every link rather than leaving gates pointing somewhere the
+  // user can no longer see. An explicit `dependsOn` in the same request still
+  // wins — that is a move and a re-link, and it is validated against the
+  // destination board.
   let dependsOn = existing.dependsOn;
+  let dependenciesChanged = false;
   if (!absent(body, 'dependsOn')) {
-    dependsOn = nullableId(body.dependsOn, 'dependsOn');
-    columns.depends_on = dependsOn;
-  } else if (boardId !== existing.boardId && dependsOn !== null) {
-    dependsOn = null;
-    columns.depends_on = null;
+    dependsOn = dependsOnList(body.dependsOn, id);
+    dependenciesChanged = true;
+  } else if (boardId !== existing.boardId && dependsOn.length > 0) {
+    dependsOn = [];
+    dependenciesChanged = true;
   }
 
-  if (dependsOn !== null && columns.depends_on !== undefined) {
-    const legal = await dependencyIsLegal(env, { ...existing, boardId, dependsOn }, dependsOn);
-    if (!legal) {
+  if (dependenciesChanged) {
+    const offender = await illegalDependency(env, { ...existing, boardId, dependsOn }, dependsOn);
+    if (offender !== null) {
       return apiError(
-        'dependsOn must be another task on the same board, and cannot form a cycle',
+        'dependsOn must be other tasks on the same board, and cannot form a cycle',
         400,
       );
     }
@@ -195,19 +225,26 @@ async function patch(request: Request, env: Env, id: string): Promise<Response> 
     // The gate, enforced where it cannot be skipped. The client disables the
     // checkbox for a gated task; this is what makes the rule true rather than
     // merely presented.
-    if (completing && dependsOn !== null) {
-      const prerequisite = await selectTask(env.DB, dependsOn);
-      if (prerequisite && prerequisite.completedAt === null) {
-        return apiError('this task is waiting on another task', 409);
-      }
+    // *Any* outstanding prerequisite refuses the completion, not just the
+    // first — which is the whole meaning of a set of them.
+    if (completing && dependsOn.length > 0) {
+      const siblings = await selectTasksOfBoard(env.DB, boardId);
+      const outstanding = siblings.some(
+        (sibling) => dependsOn.includes(sibling.id) && sibling.completedAt === null,
+      );
+      if (outstanding) return apiError('this task is waiting on another task', 409);
     }
     columns.completed_at = completing ? Date.now() : null;
   }
 
-  if (Object.keys(columns).length === 0) return json(existing);
+  if (dependenciesChanged) await replaceDependencies(env.DB, id, dependsOn);
+
+  // A patch that only changed links has no columns to write, but the caller
+  // still needs the task back with its new set.
+  if (Object.keys(columns).length === 0) return json({ ...existing, dependsOn });
 
   const task = await updateTask(env.DB, id, columns);
-  return task ? json(task) : apiError('task not found', 404);
+  return task ? json({ ...task, dependsOn }) : apiError('task not found', 404);
 }
 
 async function destroy(env: Env, id: string): Promise<Response> {

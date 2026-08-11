@@ -371,10 +371,36 @@
       transform: translate3d(0, 4px, 0);
     }
 
+    /* `:has(:focus-visible)`, not `:focus-within`.
+
+       Clicking the plus opens the composer, and closing the composer returns
+       focus to the button that opened it — which is correct, and which left
+       `:focus-within` true with the pointer somewhere else entirely, so the
+       plus stayed lit on a line the user had walked away from. `:focus-visible`
+       is not set by a mouse click, so the keyboard path keeps its reveal and
+       the pointer path lets go. */
     .blocker-add-hotspot:hover .blocker-add,
-    .blocker-add-hotspot:focus-within .blocker-add {
+    .blocker-add-hotspot:has(:focus-visible) .blocker-add {
       opacity: 1;
       transform: none;
+    }
+
+    /* The stub at the end of a chain stays visible without a hover.
+
+       An edge point can wait to be discovered: the line it sits on is drawn
+       either way, so the picture is complete without it. A stub is drawn *for*
+       its plus and for nothing else, so hiding the plus left a 36px stroke
+       trailing into empty space with nothing to explain it. Resting contrast
+       is the same reduced one touch devices get; hover still takes it to
+       full. */
+    .blocker-add-resting .blocker-add {
+      opacity: 0.55;
+      transform: none;
+    }
+
+    .blocker-add-resting:hover .blocker-add,
+    .blocker-add-resting:has(:focus-visible) .blocker-add {
+      opacity: 1;
     }
   }
 

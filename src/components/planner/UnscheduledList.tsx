@@ -47,6 +47,7 @@ import { Button } from '../ui/Button';
 import { Chip } from '../ui/Chip';
 import { EmptyLine, ErrorLine, loadErrorMessage } from '../ui/Section';
 import { SkeletonRow } from '../ui/Skeleton';
+import { waitingSummary } from '../../../shared/dependencies';
 
 const SORT_LABELS: { value: PlannerSort; label: string }[] = [
   { value: 'priority', label: 'Priority' },
@@ -415,9 +416,9 @@ function UnscheduledRow({
               §6.4) and this aside is narrow — left at the default `shrink-0`
               this chip refused to shrink and pushed the whole list into
               horizontal scroll instead of wrapping onto its own line. */}
-          {waiting && (
+          {waiting.length > 0 && (
             <Chip tone="tertiary" icon={<LinkSimple size={16} />} wrap>
-              Waiting on {waiting.name}
+              Waiting on {waitingSummary(waiting)}
             </Chip>
           )}
         </span>

@@ -43,7 +43,7 @@ function task(overrides: Partial<Task> = {}): Task {
     difficulty: null,
     priority: false,
     blocked: false,
-    dependsOn: null,
+    dependsOn: [],
     position: `a${seq}`,
     createdAt: 0,
     completedAt: null,
@@ -128,13 +128,13 @@ describe('upNext selection', () => {
       id: 'gated',
       boardId: 'bp',
       dueDate: '2026-08-04',
-      dependsOn: 'pre',
+      dependsOn: ['pre'],
     });
     const gatedButScheduled = task({
       id: 'gated-today',
       boardId: 'bp',
       scheduledAt: local('2026-08-03', '10:00'),
-      dependsOn: 'pre',
+      dependsOn: ['pre'],
     });
     expect(ids(run([prerequisite, gated, gatedButScheduled]))).toEqual([]);
   });

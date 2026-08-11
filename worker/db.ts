@@ -65,7 +65,6 @@ export interface TaskRow {
   difficulty: number | null;
   priority: number;
   blocked: number;
-  depends_on: string | null;
   position: string;
   created_at: number;
   completed_at: number | null;
@@ -91,7 +90,15 @@ export function rowToBoard(row: BoardRow): Board {
   };
 }
 
-export function rowToTask(row: TaskRow): Task {
+/**
+ * A task row plus the prerequisite ids read from `task_dependencies`.
+ *
+ * The edges are a separate table, so they are a separate read and are handed in
+ * rather than pulled from the row. Defaulting to empty is deliberate: a task
+ * with no links is the overwhelmingly common case, and it is also the honest
+ * answer for any caller that has not asked for the edges.
+ */
+export function rowToTask(row: TaskRow, dependsOn: string[] = []): Task {
   return {
     id: row.id,
     boardId: row.board_id,
@@ -104,7 +111,7 @@ export function rowToTask(row: TaskRow): Task {
     difficulty: row.difficulty as Difficulty | null,
     priority: row.priority !== 0,
     blocked: row.blocked !== 0,
-    dependsOn: row.depends_on,
+    dependsOn,
     position: row.position,
     createdAt: row.created_at,
     completedAt: row.completed_at,
@@ -131,7 +138,7 @@ const BOARD_COLUMNS =
   'id, context, name, description, accent, position, archived_at, created_at, updated_at';
 const TASK_COLUMNS =
   'id, board_id, name, notes, due_date, due_time, duration_minutes, scheduled_at, difficulty, ' +
-  'priority, blocked, depends_on, position, created_at, completed_at, updated_at';
+  'priority, blocked, position, created_at, completed_at, updated_at';
 const EVENT_COLUMNS =
   'id, context, name, weekdays, frequency_weeks, starts_on, start_minutes, duration_minutes, created_at, updated_at';
 
@@ -150,10 +157,106 @@ export async function selectBoards(db: D1Database): Promise<Board[]> {
 }
 
 export async function selectTasks(db: D1Database): Promise<Task[]> {
+  // Two queries rather than a join: a join would repeat every task column once
+  // per edge and leave this code un-flattening it, for a table where most rows
+  // have no edge at all.
+  const [{ results }, edges] = await Promise.all([
+    db.prepare(`SELECT ${TASK_COLUMNS} FROM tasks ORDER BY position, id`).all<TaskRow>(),
+    selectAllDependencies(db),
+  ]);
+  return results.map((row) => rowToTask(row, edges.get(row.id) ?? []));
+}
+
+/* --- task dependencies ----------------------------------------------------- */
+
+/**
+ * Prerequisite ids by task id.
+ *
+ * Ordered by when the link was made, then by id. Order is not decoration: it is
+ * what the composer lists and what the Blockers layout uses to break ties, and
+ * an unordered read would let a node's incoming edges swap places between two
+ * renders of data that never changed.
+ */
+interface DependencyRow {
+  task_id: string;
+  depends_on: string;
+}
+
+function groupDependencies(rows: DependencyRow[]): Map<string, string[]> {
+  const byTask = new Map<string, string[]>();
+  for (const row of rows) {
+    const existing = byTask.get(row.task_id);
+    if (existing) existing.push(row.depends_on);
+    else byTask.set(row.task_id, [row.depends_on]);
+  }
+  return byTask;
+}
+
+const DEPENDENCY_ORDER = 'ORDER BY created_at, depends_on';
+
+export async function selectAllDependencies(db: D1Database): Promise<Map<string, string[]>> {
   const { results } = await db
-    .prepare(`SELECT ${TASK_COLUMNS} FROM tasks ORDER BY position, id`)
-    .all<TaskRow>();
-  return results.map(rowToTask);
+    .prepare(`SELECT task_id, depends_on FROM task_dependencies ${DEPENDENCY_ORDER}`)
+    .all<DependencyRow>();
+  return groupDependencies(results);
+}
+
+export async function selectBoardDependencies(
+  db: D1Database,
+  boardId: string,
+): Promise<Map<string, string[]>> {
+  // Scoped by the *dependent's* board. A link never crosses boards, so this is
+  // the whole of that board's graph.
+  const { results } = await db
+    .prepare(
+      `SELECT d.task_id, d.depends_on
+       FROM task_dependencies d
+       JOIN tasks t ON t.id = d.task_id
+       WHERE t.board_id = ?
+       ${DEPENDENCY_ORDER.replace('created_at', 'd.created_at').replace('depends_on', 'd.depends_on')}`,
+    )
+    .bind(boardId)
+    .all<DependencyRow>();
+  return groupDependencies(results);
+}
+
+export async function selectDependenciesOf(db: D1Database, taskId: string): Promise<string[]> {
+  const { results } = await db
+    .prepare(`SELECT task_id, depends_on FROM task_dependencies WHERE task_id = ? ${DEPENDENCY_ORDER}`)
+    .bind(taskId)
+    .all<DependencyRow>();
+  return results.map((row) => row.depends_on);
+}
+
+/**
+ * Set a task's prerequisites to exactly `dependsOn`.
+ *
+ * Delete-then-insert rather than a diff. The set is a handful of rows for one
+ * user, the whole thing is one batch, and a diff would be more code for the
+ * same result — with the extra failure mode of computing the diff wrongly.
+ *
+ * `created_at` is therefore rewritten for links that survive the replacement.
+ * That is a real cost and an accepted one: the only thing reading it is the
+ * ordering above, and "the order you added them" staying stable across an
+ * unrelated edit is not worth a diff to preserve.
+ */
+export async function replaceDependencies(
+  db: D1Database,
+  taskId: string,
+  dependsOn: readonly string[],
+  now = Date.now(),
+): Promise<void> {
+  const statements = [
+    db.prepare('DELETE FROM task_dependencies WHERE task_id = ?').bind(taskId),
+    ...dependsOn.map((prerequisiteId) =>
+      db
+        .prepare(
+          'INSERT OR IGNORE INTO task_dependencies (task_id, depends_on, created_at) VALUES (?, ?, ?)',
+        )
+        .bind(taskId, prerequisiteId, now),
+    ),
+  ];
+  await db.batch(statements);
 }
 
 export async function selectEvents(db: D1Database): Promise<PlannerEvent[]> {
@@ -172,11 +275,14 @@ export async function selectEvent(db: D1Database, id: string): Promise<PlannerEv
  * the board.
  */
 export async function selectTasksOfBoard(db: D1Database, boardId: string): Promise<Task[]> {
-  const { results } = await db
-    .prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE board_id = ? ORDER BY position, id`)
-    .bind(boardId)
-    .all<TaskRow>();
-  return results.map(rowToTask);
+  const [{ results }, edges] = await Promise.all([
+    db
+      .prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE board_id = ? ORDER BY position, id`)
+      .bind(boardId)
+      .all<TaskRow>(),
+    selectBoardDependencies(db, boardId),
+  ]);
+  return results.map((row) => rowToTask(row, edges.get(row.id) ?? []));
 }
 
 export async function selectBoard(db: D1Database, id: string): Promise<Board | null> {
@@ -192,7 +298,7 @@ export async function selectTask(db: D1Database, id: string): Promise<Task | nul
     .prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`)
     .bind(id)
     .first<TaskRow>();
-  return row ? rowToTask(row) : null;
+  return row ? rowToTask(row, await selectDependenciesOf(db, id)) : null;
 }
 
 export interface NewBoard {
@@ -231,7 +337,8 @@ export interface NewTask {
   difficulty: Difficulty | null;
   priority: boolean;
   blocked: boolean;
-  dependsOn: string | null;
+  /** The prerequisites to link, written to `task_dependencies` after insert. */
+  dependsOn: string[];
   position: string;
 }
 
@@ -240,9 +347,9 @@ export async function insertTask(db: D1Database, task: NewTask, now = Date.now()
   const row = await db
     .prepare(
       `INSERT INTO tasks (id, board_id, name, notes, due_date, due_time, duration_minutes,
-                          scheduled_at, difficulty, priority, blocked, depends_on, position,
+                          scheduled_at, difficulty, priority, blocked, position,
                           created_at, completed_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
        RETURNING ${TASK_COLUMNS}`,
     )
     .bind(
@@ -257,7 +364,6 @@ export async function insertTask(db: D1Database, task: NewTask, now = Date.now()
       task.difficulty,
       task.priority ? 1 : 0,
       task.blocked ? 1 : 0,
-      task.dependsOn,
       task.position,
       now,
       now,
