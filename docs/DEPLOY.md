@@ -12,6 +12,8 @@
 | Worker deployed | **Not yet** — needs an authenticated `wrangler` |
 | `tasks.charliepolito.com` attached | **Not yet** — happens on the first deploy |
 | Password secret | **Not yet** — see `PASSWORD-SETUP.md`, needed before issue 2 |
+| `0006_push_notifications.sql` on the remote DB | **Not yet.** Additive and safe — two new tables, nothing altered. Deploying without it makes every notification path fail on `no such table`, and nothing else |
+| VAPID secrets | **Not yet** — see `NOTIFICATIONS.md`. Their absence is handled: the app runs with notifications simply unavailable |
 
 The remote schema was applied through the Cloudflare API rather than
 `wrangler d1 migrations apply --remote`, so the `d1_migrations` bookkeeping row
@@ -160,6 +162,28 @@ Two consequences for the deploy:
 The conversion has been verified against a local database seeded with a row of
 every old value — `15m`, `30m`, `1h`, `2h`, `4h`, `half-day`, and NULL — which
 migrated to `15, 30, 60, 120, 240, 240, NULL` respectively.
+
+### `0006_push_notifications.sql` and the cron trigger
+
+Additive: two new tables (`push_subscriptions`, `notification_log`) and no
+change to an existing one. Unlike `0003`, the old Worker tolerates it
+completely, so the usual "migrate first" ordering is a formality rather than a
+cliff — but `npm run deploy` does it anyway.
+
+The same deploy also registers the `[triggers] crons` entry from
+`wrangler.toml`, which is what runs the notification tick. Confirm it after the
+first deploy:
+
+```sh
+npx wrangler deployments list          # the cron appears in the deployment
+npx wrangler tail                      # ticks log only when something is sent
+```
+
+A quiet tail is the expected state: the tick returns immediately whenever
+notifications are off or nothing is due, and logs only on an actual send.
+
+Setup for the notification feature itself — VAPID keys, permissions, the
+iOS home-screen requirement — is in `NOTIFICATIONS.md`.
 
 ### Checking what the live database actually has
 

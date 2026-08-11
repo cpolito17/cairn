@@ -20,6 +20,7 @@ import { useEffect, useState } from 'react';
 import { AppShell } from './components/AppShell';
 import { Toaster } from './components/ui/Toast';
 import * as api from './lib/api';
+import { refreshSubscription } from './lib/push';
 import { setRedirect } from './lib/redirect';
 import { Link, useRoute } from './lib/router';
 import { subscribeToConnectivity, useStore } from './lib/store';
@@ -91,6 +92,16 @@ function SignedIn({ onSignedOut }: { onSignedOut(): void }) {
   }, [load]);
 
   useEffect(() => subscribeToConnectivity(), []);
+
+  // Push services rotate endpoints, and a browser can replace a subscription
+  // without telling the page. Re-registering whatever this browser currently
+  // holds, once per signed-in load, is what keeps the server's copy from going
+  // quietly stale — the failure mode otherwise being a phone that stops
+  // receiving anything and shows nothing wrong. It is a no-op on a device that
+  // has never granted permission.
+  useEffect(() => {
+    void refreshSubscription();
+  }, []);
 
   return (
     // `reducedMotion="user"` makes every motion component honour

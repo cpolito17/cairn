@@ -24,5 +24,17 @@ database_name = "cairn"
 database_id = "a05a3c87-c16b-458e-87f8-9c117a28312e"
 migrations_dir = "migrations"
 
+# The notification tick (docs/NOTIFICATIONS.md).
+#
+# Every minute, because the due-reminder lead is a per-task offset from an
+# arbitrary due time — a 1:33 PM task at a five-minute lead needs 1:28, which no
+# coarser schedule lands on. The tick reads one settings row and returns when
+# notifications are off, so the cost of the resolution is a rounding error.
+#
+# Cron fires in UTC. The user's start-of-day is a wall-clock time in the zone
+# stored in settings, and `shared/timezone.ts` is what reconciles the two.
+[triggers]
+crons = ["* * * * *"]
+
 [observability]
 enabled = true

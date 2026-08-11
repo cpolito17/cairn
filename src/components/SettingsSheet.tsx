@@ -7,9 +7,14 @@
  * outright: `Menu`/`MenuItem` stay in the tree for the board header, and this
  * surface stops using them.
  *
- * Sections: Theme · Working hours · Archived boards · Log out. The first two
- * are settings, the last two are actions, and the hairline before Archived is
- * where that changes.
+ * Sections: Theme · Working hours · Notifications · Archived boards · Log out.
+ * The first three are settings, the last two are actions, and the hairline
+ * before Archived is where that changes.
+ *
+ * Notifications live in `NotificationSettings.tsx` rather than here because
+ * they are the one section with state this sheet does not own — a browser
+ * permission and a push subscription, both of which can change from outside the
+ * app entirely.
  *
  * **Context (V2 §4.3's first section) lives in `AppShell.tsx` now**, as the
  * Personal/Work pill beside the gear rather than a control inside what it
@@ -25,6 +30,7 @@ import { navigate } from '../lib/router';
 import { updateSettingsSpec, useSettings, useStore } from '../lib/store';
 import { MINUTES_PER_DAY } from '../../shared/settings';
 import { Dialog, DialogHeader } from './ui/Dialog';
+import { NotificationSettings } from './NotificationSettings';
 import { ThemeSelect } from './ThemeSelect';
 import type { Theme } from '../lib/theme';
 
@@ -62,6 +68,8 @@ export function SettingsSheet({ open, onClose, onSignedOut }: SettingsSheetProps
       </Field>
 
       <WorkingHours />
+
+      <NotificationSettings />
 
       <div
         className="mt-6 pt-2"

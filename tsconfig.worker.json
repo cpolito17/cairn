@@ -27,6 +27,8 @@
     "shared/order.ts",
     "shared/dependencies.ts",
     "shared/schedule.ts",
-    "shared/settings.ts"
+    "shared/settings.ts",
+    "shared/timezone.ts",
+    "shared/notifications.ts"
   ]
 }

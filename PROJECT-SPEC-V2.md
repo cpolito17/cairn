@@ -714,8 +714,51 @@ or flags "ready" for them beyond what costs nothing.
 - **Timezone support.** Local wall-clock only.
 - **Statistics built on the heat map** — streaks, velocity, completion history.
   The data is now sitting right there; nothing reads it.
-- **Notifications or reminders** for a block that is about to start.
+- **Notifications or reminders** for a block that is about to start. *(Still
+  excluded — see the addendum below. Notifications now exist, and deliberately
+  do not cover Planner blocks: a due date is a commitment, a block is a plan.)*
 - Everything already excluded by v1 §10 that V2 does not explicitly revise.
+
+---
+
+## 13. Addendum — push notifications
+
+Added after V2 shipped, and a deliberate revision of v1 §10's "no push
+notifications or reminders" and of §11 above. `docs/NOTIFICATIONS.md` is the
+complete specification; what follows is what changed in the documents this one
+supersedes.
+
+**What exists now.** Web Push (VAPID, no third-party service) to any device that
+has subscribed, carrying two kinds of message: a once-a-day summary of what is
+due today and what is overdue, at a start-of-day time set separately for Mon–Fri
+and Sat–Sun; and a per-task reminder a configurable number of minutes ahead of
+any task that has a due *time*. Tapping either opens the installed app — the
+summary at the home screen, a reminder at its task's board with the task
+highlighted.
+
+**Decisions, in the register of §2:**
+
+| Decision | Rationale | Cheap to change later? |
+|---|---|---|
+| **Web Push only.** No email, SMS, or chat-service fallback | It is free, needs no account, and a tap opens the home-screen app — which is the whole of the stated requirement. A second channel is a second content pipeline to keep in step for no additional reach | Yes |
+| **Notification settings are global, not per-context** | Personal and Work are separate because a doctor's appointment does not belong in a work review. The phone in your pocket is not a context, and a morning where the summary hid the dentist would be the feature lying | Moderate |
+| **One time zone is stored, in settings, and it is *picked* rather than detected** | Cron fires in UTC; "8:00 AM" is not an instant without a zone. This is the single exception to §2's "no timezone is stored", and it is scoped to notifications — the Planner remains local wall-clock throughout. Picked rather than detected because a zone that followed the device would move the morning summary every time the app was opened somewhere else | Moderate |
+| **The cron ticks every minute** | The reminder lead is an offset from an arbitrary due time; 1:33 PM minus five minutes is 1:28, which no coarser schedule lands on. A tick with notifications off reads one row and returns | Yes |
+| **Idempotency is by key, written before the send** | A phone that buzzes twice about one task is the failure a user actually notices; a missed notification is not. So the ledger is written first and a crash costs at most one message | No |
+| **A summary with nothing due and nothing overdue is not sent** | §6.7's empty state is a quiet line on a screen the user chose to open. A push is an interruption, and "nothing today" has not earned one | Yes |
+| **Reminders cover due *times*, never Planner blocks** | A due date is a commitment; a block is a plan, and §11 above rejects nudging about one. That line still holds | Yes |
+| **The service worker has no `fetch` handler** | A service worker is required to receive a push, and is also the first half of offline-first — which v1 §3 rejects as the largest complexity multiplier in the project. Registering one for notifications must not smuggle the other in | No |
+
+**Settings gains five fields** (§3.2): `notificationsEnabled`, `timeZone`,
+`weekdayStartMinutes`, `weekendStartMinutes`, `dueReminderLeadMinutes`. They ride
+in the same JSON document for the same reason everything else there does, and
+they are read by the Worker's scheduled handler rather than by any screen.
+
+**The settings sheet gains a Notifications section** (§4.3), between Working
+hours and Archived boards: the master toggle, the two start-of-day times, the
+reminder lead, the time zone, and a test-send. Every refusal — an un-installed
+PWA on iOS, a denied permission, a deployment with no keys — is named in a
+sentence rather than collapsed into a toggle that will not stay on.
 
 ---
 

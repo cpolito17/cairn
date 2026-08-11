@@ -179,6 +179,66 @@ export interface Settings {
   plannerView: PlannerView;
   plannerGroupByBoard: boolean;
   plannerSort: PlannerSort;
+
+  /**
+   * The master switch for push notifications. False disables every kind of
+   * notification at the source — the scheduled job reads this before it reads
+   * anything else — so turning it off does not depend on the browser also
+   * having dropped its subscription.
+   *
+   * Notification settings are deliberately *not* per-context: one phone, one
+   * set of alerts, and a digest that stopped at the context boundary would be
+   * two notifications every morning saying half a thing each.
+   */
+  notificationsEnabled: boolean;
+  /**
+   * The IANA zone the scheduled job reads local wall-clock time in, e.g.
+   * `America/Detroit`.
+   *
+   * This is the one place a timezone exists in the app, and it exists for
+   * exactly one reason: cron fires in UTC, so "8:00 AM" is not a computable
+   * instant without it. It is picked by hand rather than detected, so a
+   * digest's hour never moves because a laptop was opened in another airport.
+   * Nothing else reads it — the Planner is still local wall-clock (V2 §2).
+   */
+  timeZone: string;
+  /** Minutes from local midnight for the Mon–Fri digest. Default 480 (8:00 AM). */
+  weekdayStartMinutes: number;
+  /** Minutes from local midnight for the Sat–Sun digest. Default 600 (10:00 AM). */
+  weekendStartMinutes: number;
+  /**
+   * How many minutes *before* a task's due time its own reminder fires, or null
+   * for no per-task reminders at all. A 1:30 PM task at a lead of 5 notifies at
+   * 1:25 PM. Only tasks with both a due date and a due time can qualify: a task
+   * due "sometime Tuesday" has no moment to count backwards from, and belongs to
+   * the morning digest instead.
+   */
+  dueReminderLeadMinutes: number | null;
+}
+
+/** The lead times the settings sheet offers. Null is "no per-task reminders". */
+export const REMINDER_LEADS: readonly (number | null)[] = [null, 0, 5, 10, 15, 30, 60] as const;
+
+/** True for a lead the settings sheet can round-trip. */
+export function isReminderLead(value: unknown): value is number | null {
+  return value === null || (REMINDER_LEADS as readonly unknown[]).includes(value);
+}
+
+/**
+ * True for a string `Intl` will accept as a time zone.
+ *
+ * Asking `Intl` rather than checking against a bundled list: the list of zones
+ * changes with the platform's tzdata, and a hard-coded copy would start
+ * refusing zones the runtime is perfectly happy with.
+ */
+export function isTimeZone(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export type PlannerView = 'week' | 'month' | 'year';
