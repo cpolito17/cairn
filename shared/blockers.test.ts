@@ -183,6 +183,103 @@ describe('many prerequisites', () => {
   });
 });
 
+describe('edge routing', () => {
+  const edgesOf = (tasks: Task[]) => layoutBlockers(tasks).graphs[0].edges;
+
+  it('leaves an adjacent-column edge unbent', () => {
+    const edges = edgesOf([task('a'), task('b', ['a'])]);
+    expect(edges).toHaveLength(1);
+    expect(edges[0]).toMatchObject({ fromId: 'a', toId: 'b' });
+    expect(edges[0].bends).toEqual([]);
+  });
+
+  it('bends a long edge once per column it crosses', () => {
+    // `sink` waits on `near` (depth 0) and on `far` (depth 2), so it sits at
+    // depth 3 and the edge from `near` has to cross columns 1 and 2.
+    const tasks = [
+      task('near'),
+      task('a'),
+      task('b', ['a']),
+      task('far', ['b']),
+      task('sink', ['near', 'far']),
+    ];
+    const edges = edgesOf(tasks);
+
+    const long = edges.find((edge) => edge.fromId === 'near' && edge.toId === 'sink');
+    expect(long?.bends.map((bend) => bend.depth)).toEqual([1, 2]);
+
+    // ...while the edge that only spans one column stays straight.
+    const short = edges.find((edge) => edge.fromId === 'far' && edge.toId === 'sink');
+    expect(short?.bends).toEqual([]);
+  });
+
+  it('gives every bend a row of its own in the column it crosses', () => {
+    // This is the property that keeps a line off a card: the bend competes for
+    // vertical space with the real nodes in that column rather than being drawn
+    // over them.
+    const tasks = [
+      task('near'),
+      task('a'),
+      task('b', ['a']),
+      task('far', ['b']),
+      task('sink', ['near', 'far']),
+    ];
+    const graph = layoutBlockers(tasks).graphs[0];
+    const long = graph.edges.find((edge) => edge.fromId === 'near' && edge.toId === 'sink')!;
+
+    for (const bend of long.bends) {
+      // The bend is in its column's layer...
+      expect(graph.layers[bend.depth]).toContain(bend.id);
+      // ...and no task in that column shares its row.
+      const clashes = graph.nodes.filter(
+        (node) => node.depth === bend.depth && node.row === bend.row,
+      );
+      expect(clashes).toEqual([]);
+    }
+  });
+
+  it('lists bends and vertices consistently', () => {
+    const tasks = [task('a'), task('b', ['a']), task('c', ['b']), task('d', ['a', 'c'])];
+    const graph = layoutBlockers(tasks).graphs[0];
+    const bendIds = graph.edges.flatMap((edge) => edge.bends.map((bend) => bend.id));
+
+    // Every bend is a vertex, carries no task, and is reachable from both ends.
+    for (const id of bendIds) {
+      const vertex = graph.vertices.find((entry) => entry.id === id);
+      expect(vertex?.task).toBeNull();
+      expect(vertex?.prerequisiteIds.length).toBe(1);
+      expect(vertex?.dependentIds.length).toBe(1);
+    }
+    // Real tasks are vertices too, and there are no others.
+    expect(graph.vertices).toHaveLength(graph.nodes.length + bendIds.length);
+  });
+
+  it('keeps a routed chain adjacent at every step', () => {
+    // The invariant the whole mechanism exists for: after routing, no leg of
+    // any edge spans more than one column, so no leg can cross a card.
+    const tasks = [
+      task('root'),
+      task('m1', ['root']),
+      task('m2', ['m1']),
+      task('m3', ['m2']),
+      task('late', ['root', 'm3']),
+    ];
+    const graph = layoutBlockers(tasks).graphs[0];
+    const depthOf = new Map(graph.nodes.map((node) => [node.task.id, node.depth]));
+
+    for (const edge of graph.edges) {
+      const stops = [
+        depthOf.get(edge.fromId) as number,
+        ...edge.bends.map((bend) => bend.depth),
+        depthOf.get(edge.toId) as number,
+      ];
+      for (let index = 1; index < stops.length; index += 1) {
+        expect(stops[index] - stops[index - 1]).toBe(1);
+      }
+    }
+  });
+});
+
 describe('untrusted stored data', () => {
   it('breaks a stored cycle deterministically and returns every task', () => {
     const tasks = [

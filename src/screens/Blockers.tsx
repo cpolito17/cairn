@@ -1,17 +1,18 @@
 /**
  * Blockers. PROJECT-SPEC-V2.md §7.
  *
- * Each active board is one independently scrolling horizontal row. Dependency
- * trees are the pure result of `shared/blockers.ts`; this screen only turns its
- * depth and tidy-tree rows into pixels, draws one SVG edge layer, and wires the
- * existing composer and completion action to the nodes.
+ * Each active board is one independently scrolling horizontal row. The
+ * dependency graph — columns, rows, and the route every edge takes — is the
+ * pure result of `shared/blockers.ts`; this screen turns that into pixels,
+ * draws one SVG edge layer, and wires the existing composer and completion
+ * action to the nodes.
  *
  * The one thing it adds on its own is a way to *extend* a chain: every
  * dependency line carries a hover point that opens the composer in create mode
  * with the link already pointing at the task that line leaves from, and a node
  * with nothing after it grows a stub so it has such a point too. Nothing about
  * it is stored — a created task goes through the same `addTask` every other
- * surface uses, and the tree redraws from the store.
+ * surface uses, and the graph redraws from the store.
  */
 
 import { CaretDown, Check, Clock, Flag, Plus } from '@phosphor-icons/react';
@@ -63,10 +64,12 @@ const TREE_PADDING_Y = 24;
  * no line to hover, so it grows a short stub of its own — which is also the
  * only at-rest hint that any of this is here at all.
  *
- * `ADD_HOTSPOT_WIDTH` (56) and the leaf hotspot's own width (`ADD_STUB` +
- * `ADD_BUTTON` = 72) are both bounded by `COLUMN_GAP`, so no hotspot ever
- * reaches into the column a node occupies. That is what keeps this out of the
- * way of the node cards without a stacking order to maintain.
+ * An edge point sits in the **first** gap the edge travels through, which is
+ * always free of cards — so a plus never lands on an intermediate column, and
+ * a node with a distant dependent still gets one. A stub belongs only to a node
+ * with no dependents at all: one that has them already has a line leaving its
+ * right edge, and drawing a stub as well put a second stroke and a plus
+ * straight on top of the real edge.
  */
 const ADD_BUTTON = 44;
 const ADD_CIRCLE = 28;
@@ -710,16 +713,21 @@ function TaskCheckbox({
  * its children and that was the end of it. With several, no single position
  * satisfies every edge, so the placement is two sweeps over the columns:
  *
- *   1. **Left to right**, each node pulled to the average centre of the
+ *   1. **Left to right**, each vertex pulled to the average centre of the
  *      prerequisites already placed to its left, then pushed down if that would
- *      overlap the node above it in its own column. This is what makes an edge
- *      travel roughly horizontally instead of diving across the picture.
- *   2. **Right to left**, each node pulled towards the average centre of its
- *      dependents, within the room its neighbours leave it. Without this pass a
- *      task with two dependents sits level with the first of them; with it, it
- *      sits between them, which is what the eye expects of a fork.
+ *      overlap the one above it in its own column.
+ *   2. **Right to left**, balancing *both* sides. Pulling only towards
+ *      dependents looks right on a chain and wrong on a fork: the task two
+ *      branches converge into gets dragged into line with whatever follows it
+ *      instead of sitting between the two things it is waiting for.
  *
- * Neither sweep moves a node out of its layer's order, so the ordering
+ * **Both sweeps run over vertices, not nodes** — bends included. A bend has no
+ * height but it does hold a row, so it competes for vertical space and shoves
+ * real cards aside to make a channel for the edge passing through. That is what
+ * keeps V2 §7.2's "edges never pass through a node" true now that an edge can
+ * span more than one column.
+ *
+ * Neither sweep moves a vertex out of its layer's order, so the ordering
  * `shared/blockers.ts` computed — and its stability — survives.
  */
 function geometryOf(layout: BlockerLayout, heights: Map<string, number> | null): Geometry {
@@ -736,20 +744,24 @@ function geometryOf(layout: BlockerLayout, heights: Map<string, number> | null):
   const addPoints: AddPoint[] = [];
   let graphTop = TREE_PADDING_Y;
 
-  const heightOf = (taskId: string): number =>
-    Math.max(NODE_HEIGHT, heights?.get(taskId) ?? NODE_HEIGHT);
-
   for (const graph of layout.graphs) {
+    const byVertexId = new Map(graph.vertices.map((vertex) => [vertex.id, vertex]));
     const byTaskId = new Map(graph.nodes.map((node) => [node.task.id, node]));
-    // Relative to this component's own top starting at 0; the running
-    // `graphTop` is added once the whole thing is placed and its own extent is
-    // known.
+
+    // A bend is a point, not a box. Zero height still leaves it a full
+    // `ROW_GAP` of clearance on each side, which is the channel the line runs
+    // down.
+    const heightOf = (id: string): number =>
+      byVertexId.get(id)?.task === null
+        ? 0
+        : Math.max(NODE_HEIGHT, heights?.get(id) ?? NODE_HEIGHT);
+
     const top = new Map<string, number>();
     const centreOf = (id: string): number => (top.get(id) as number) + heightOf(id) / 2;
 
     /**
-     * Place one column in its given order, each node as near its wish as the
-     * node above it allows. Only ever pushes down, so the order is preserved
+     * Place one column in its given order, each vertex as near its wish as the
+     * one above it allows. Only ever pushes down, so the order is preserved
      * exactly; the whole component is normalised afterwards.
      */
     const placeLayer = (ids: string[], wish: (id: string) => number | null) => {
@@ -764,100 +776,93 @@ function geometryOf(layout: BlockerLayout, heights: Map<string, number> | null):
       }
     };
 
+    const meanCentre = (ids: readonly string[]): number | null => {
+      const placed = ids.filter((id) => top.has(id));
+      if (placed.length === 0) return null;
+      return placed.reduce((sum, id) => sum + centreOf(id), 0) / placed.length;
+    };
+
     // Sweep one: left to right, pulled by prerequisites.
     for (let depth = 0; depth <= graph.maxDepth; depth += 1) {
-      placeLayer(graph.layers[depth], (id) => {
-        const prerequisiteIds = byTaskId.get(id)?.prerequisiteIds ?? [];
-        const placed = prerequisiteIds.filter((entry) => top.has(entry));
-        if (placed.length === 0) return null;
-        return placed.reduce((sum, entry) => sum + centreOf(entry), 0) / placed.length;
-      });
+      placeLayer(graph.layers[depth], (id) =>
+        meanCentre(byVertexId.get(id)?.prerequisiteIds ?? []),
+      );
     }
 
-    // Sweep two: right to left, balancing *both* sides.
-    //
-    // Pulling only towards dependents looks right on a chain and wrong on a
-    // fork: the task two branches converge into gets dragged into line with
-    // whatever is downstream of it, and stops sitting between the two things it
-    // is actually waiting for. Averaging over every neighbour in both
-    // directions keeps a join centred on its branches while still letting a
-    // long tail straighten out.
+    // Sweep two: right to left, balancing both directions.
     for (let depth = graph.maxDepth - 1; depth >= 0; depth -= 1) {
       placeLayer(graph.layers[depth], (id) => {
-        const node = byTaskId.get(id);
-        const neighbours = [...(node?.prerequisiteIds ?? []), ...(node?.dependentIds ?? [])].filter(
-          (entry) => top.has(entry),
-        );
-        if (neighbours.length === 0) return null;
-        return neighbours.reduce((sum, entry) => sum + centreOf(entry), 0) / neighbours.length;
+        const vertex = byVertexId.get(id);
+        return meanCentre([...(vertex?.prerequisiteIds ?? []), ...(vertex?.dependentIds ?? [])]);
       });
     }
 
-    // A component whose pulls sent its topmost node above where it should start
-    // is shifted down bodily, which keeps every relative position intact while
-    // guaranteeing it lands inside its own bounds.
-    const minTop = Math.min(...graph.nodes.map((node) => top.get(node.task.id) as number));
+    // A component whose pulls sent its topmost vertex above where it should
+    // start is shifted down bodily, which keeps every relative position intact
+    // while guaranteeing it lands inside its own bounds.
+    const minTop = Math.min(...graph.vertices.map((vertex) => top.get(vertex.id) as number));
     const shift = graphTop - minTop;
-    const pixelTop = (taskId: string): number => (top.get(taskId) as number) + shift;
-    const pixelCentre = (taskId: string): number => pixelTop(taskId) + heightOf(taskId) / 2;
+    const pixelTop = (id: string): number => (top.get(id) as number) + shift;
+    const pixelCentre = (id: string): number => pixelTop(id) + heightOf(id) / 2;
     const columnX = (depth: number): number => TREE_PADDING_X + depth * columnStride;
 
     for (const node of graph.nodes) {
       nodes.push({ node, x: columnX(node.depth), y: pixelTop(node.task.id) });
     }
 
-    // Edges, one per prerequisite. Several arriving at the same task all end at
-    // its left edge, so they visibly *flow into* it rather than merely stopping
-    // near it — which is the whole point of drawing a fan-in.
-    for (const node of graph.nodes) {
-      for (const prerequisiteId of node.prerequisiteIds) {
-        const prerequisite = byTaskId.get(prerequisiteId);
-        if (!prerequisite) continue;
+    // Edges, one per prerequisite, routed through their bends. Several arriving
+    // at the same task all end at the centre of its left edge, so they visibly
+    // *flow into* it rather than merely stopping near it — which is the whole
+    // point of drawing a fan-in.
+    for (const edge of graph.edges) {
+      const from = byTaskId.get(edge.fromId);
+      const to = byTaskId.get(edge.toId);
+      if (!from || !to) continue;
 
-        const startX = columnX(prerequisite.depth) + NODE_WIDTH;
-        const startY = pixelCentre(prerequisiteId);
-        const endX = columnX(node.depth);
-        const endY = pixelCentre(node.task.id);
-        // Control points on the vertical halfway line. For a one-column edge
-        // this is the same curve the forest drew; for a longer one it keeps the
-        // approach into the dependent horizontal, so the arrow of the thing is
-        // still legible where it matters.
-        const controlX = startX + (endX - startX) / 2;
+      const points = [
+        { x: columnX(from.depth) + NODE_WIDTH, y: pixelCentre(edge.fromId) },
+        ...edge.bends.map((bend) => ({
+          // The bend sits at the middle of the column it is crossing, in a row
+          // no card occupies.
+          x: columnX(bend.depth) + NODE_WIDTH / 2,
+          y: pixelCentre(bend.id),
+        })),
+        { x: columnX(to.depth), y: pixelCentre(edge.toId) },
+      ];
 
-        edges.push({
-          id: `${prerequisiteId}:${node.task.id}`,
-          parentId: prerequisiteId,
-          childId: node.task.id,
-          path: `M ${startX} ${startY} C ${controlX} ${startY}, ${controlX} ${endY}, ${endX} ${endY}`,
-        });
+      edges.push({
+        id: `${edge.fromId}:${edge.toId}`,
+        parentId: edge.fromId,
+        childId: edge.toId,
+        path: pathThrough(points),
+      });
 
-        // The plus belongs on edges that cross exactly one gap. A longer edge
-        // has its midpoint somewhere over an intermediate column, where a
-        // button would land on top of an unrelated node — and the task it would
-        // create is reachable from the prerequisite's own affordance anyway.
-        if (node.depth - prerequisite.depth === 1) {
-          addPoints.push(
-            addPointAt(
-              `edge:${prerequisiteId}:${node.task.id}`,
-              prerequisiteId,
-              prerequisite.task.name,
-              (startX + endX) / 2,
-              (startY + endY) / 2,
-            ),
-          );
-        }
-      }
+      // The plus goes in the **first** gap the edge travels through — the one
+      // immediately right of the prerequisite, which is always free of cards.
+      // For a one-column edge that is the curve's own midpoint, exactly as
+      // before; for a longer one it is the first leg's, which keeps the button
+      // off both the intermediate columns and the edge it belongs to.
+      addPoints.push(
+        addPointAt(
+          `edge:${edge.fromId}:${edge.toId}`,
+          edge.fromId,
+          from.task.name,
+          (points[0].x + points[1].x) / 2,
+          (points[0].y + points[1].y) / 2,
+        ),
+      );
     }
 
-    // Every node needs one way to hang a new task off it. A node with a
-    // one-column dependent already got that from the edge above; anything else
-    // — a leaf, or a node whose dependents are all further right — grows a stub
-    // of its own, which is also the only at-rest hint the affordance exists.
+    // A node nothing waits on has no edge leaving it, so it gets a stub: a
+    // short line off its right edge leading to a plus. This is also the only
+    // at-rest hint the affordance exists anywhere.
+    //
+    // Only true leaves qualify. A node that *does* have dependents already has
+    // a line leaving its right edge and an add point on it, and drawing a stub
+    // as well put a second stroke — and a plus — straight on top of the real
+    // edge.
     for (const node of graph.nodes) {
-      const hasAdjacentEdge = node.dependentIds.some(
-        (id) => (byTaskId.get(id)?.depth ?? 0) - node.depth === 1,
-      );
-      if (hasAdjacentEdge) continue;
+      if (node.dependentIds.length > 0) continue;
 
       const right = columnX(node.depth) + NODE_WIDTH;
       const centreY = pixelCentre(node.task.id);
@@ -886,8 +891,8 @@ function geometryOf(layout: BlockerLayout, heights: Map<string, number> | null):
       });
     }
 
-    const graphBottom = graph.nodes.reduce(
-      (max, node) => Math.max(max, pixelTop(node.task.id) + heightOf(node.task.id)),
+    const graphBottom = graph.vertices.reduce(
+      (max, vertex) => Math.max(max, pixelTop(vertex.id) + heightOf(vertex.id)),
       graphTop,
     );
     graphTop = graphBottom + TREE_GAP;
@@ -910,6 +915,25 @@ function geometryOf(layout: BlockerLayout, heights: Map<string, number> | null):
     height,
     leftmostIncompleteX: leftmost?.x ?? null,
   };
+}
+
+/**
+ * A smooth path through a run of points, left to right.
+ *
+ * One cubic per leg, control points on the vertical halfway line between the
+ * two ends — so every leg leaves and arrives horizontally, and the joins at the
+ * bends are smooth because both sides are flat there. For a single leg this is
+ * byte-for-byte the curve the forest drew.
+ */
+function pathThrough(points: readonly { x: number; y: number }[]): string {
+  let path = `M ${points[0].x} ${points[0].y}`;
+  for (let index = 1; index < points.length; index += 1) {
+    const from = points[index - 1];
+    const to = points[index];
+    const controlX = from.x + (to.x - from.x) / 2;
+    path += ` C ${controlX} ${from.y}, ${controlX} ${to.y}, ${to.x} ${to.y}`;
+  }
+  return path;
 }
 
 /**

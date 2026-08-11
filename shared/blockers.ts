@@ -46,6 +46,59 @@ export interface BlockerNode {
   dependentIds: string[];
 }
 
+/**
+ * A point an edge is routed through, in a column it merely passes over.
+ *
+ * These exist because of one rule V2 §7.2 states and the forest used to give
+ * for free: **edges never pass through a node.** Every edge in a forest spanned
+ * exactly one column, so there was nothing between its ends to hit. In a graph a
+ * task can wait on something three columns back, and a straight run from one to
+ * the other crosses whatever happens to be in between.
+ *
+ * So a long edge is broken at every column it crosses, and each break is given a
+ * row of its own in that column — competing for vertical space with the real
+ * nodes there and pushing them aside. That is what turns "draw a line and hope"
+ * into a reserved channel the line can travel down. It is the dummy-vertex idea
+ * from layered graph drawing, and it is the only part of that literature this
+ * file needs.
+ *
+ * A bend is not a task, has no height, and is never rendered — only its
+ * coordinates are.
+ */
+export interface BlockerBend {
+  id: string;
+  depth: number;
+  row: number;
+}
+
+/** One dependency, and the columns it has to cross to be drawn. */
+export interface BlockerEdge {
+  /** The prerequisite. Drawn from its right edge. */
+  fromId: string;
+  /** The dependent. Drawn into its left edge. */
+  toId: string;
+  /** Waypoints, left to right. Empty when the two are in adjacent columns. */
+  bends: BlockerBend[];
+}
+
+/**
+ * A vertex of the placement problem: a task, or a bend.
+ *
+ * Vertical placement does not care which it is looking at — both occupy a row,
+ * both pull on their neighbours — so both are handed to the screen in one list
+ * and the screen's placement sweeps run over it uniformly.
+ */
+export interface BlockerVertex {
+  id: string;
+  depth: number;
+  row: number;
+  /** Null for a bend. */
+  task: Task | null;
+  /** Neighbours in the *routed* graph, so a long edge's ends are its bends. */
+  prerequisiteIds: string[];
+  dependentIds: string[];
+}
+
 export interface BlockerGraph {
   /**
    * The component's identity: the id of its first task in input order. Used as
@@ -53,8 +106,13 @@ export interface BlockerGraph {
    * be a "root" — a component can have several.
    */
   id: string;
+  /** Real tasks only, for rendering cards. */
   nodes: BlockerNode[];
-  /** Task ids by depth, each layer already in its drawing order. */
+  /** Tasks and bends together, for placing them. */
+  vertices: BlockerVertex[];
+  /** Task-to-task dependencies, each carrying the route it takes. */
+  edges: BlockerEdge[];
+  /** Vertex ids by depth, each layer already in its drawing order. */
   layers: string[][];
   maxDepth: number;
 }
@@ -290,8 +348,53 @@ function layoutComponent(
   const inputOrder = new Map(members.map((task, index) => [task.id, index]));
   const maxDepth = members.reduce((max, task) => Math.max(max, depths.get(task.id) as number), 0);
 
+  // The routed graph: every task, plus a bend for each column a long edge has
+  // to cross. From here on placement works on this and never on the raw links,
+  // which is what guarantees an edge only ever runs between adjacent columns —
+  // and therefore never over a node.
+  const vertexDepth = new Map<string, number>(members.map((task) => [task.id, depths.get(task.id) as number]));
+  const routedPrerequisites = new Map<string, string[]>(members.map((task) => [task.id, []]));
+  const routedDependents = new Map<string, string[]>(members.map((task) => [task.id, []]));
+  const edges: BlockerEdge[] = [];
+  const bendIds: string[] = [];
+
+  const link = (from: string, to: string) => {
+    routedPrerequisites.get(to)?.push(from);
+    routedDependents.get(from)?.push(to);
+  };
+
+  for (const task of members) {
+    const toDepth = depths.get(task.id) as number;
+    for (const fromId of graph.prerequisites.get(task.id) as string[]) {
+      const fromDepth = depths.get(fromId) as number;
+      const bends: BlockerBend[] = [];
+
+      let previous = fromId;
+      for (let depth = fromDepth + 1; depth < toDepth; depth += 1) {
+        const id = `~${fromId}>${task.id}@${depth}`;
+        bendIds.push(id);
+        vertexDepth.set(id, depth);
+        routedPrerequisites.set(id, []);
+        routedDependents.set(id, []);
+        link(previous, id);
+        previous = id;
+        bends.push({ id, depth, row: 0 });
+      }
+      link(previous, task.id);
+
+      edges.push({ fromId, toId: task.id, bends });
+    }
+  }
+
   const layers: string[][] = Array.from({ length: maxDepth + 1 }, () => []);
   for (const task of members) layers[depths.get(task.id) as number].push(task.id);
+  for (const id of bendIds) layers[vertexDepth.get(id) as number].push(id);
+
+  // A bend sorts among real nodes by the same rule they use, so a channel ends
+  // up between the two things it is travelling between rather than always above
+  // or below them. Ties fall back to input order for tasks and to the id for
+  // bends, which keeps the whole arrangement total and reproducible.
+  const orderKey = (id: string): number => inputOrder.get(id) ?? members.length;
 
   const rows = new Map<string, number>();
   for (let depth = 0; depth <= maxDepth; depth += 1) {
@@ -299,21 +402,26 @@ function layoutComponent(
 
     if (depth > 0) {
       layer.sort((a, b) => {
-        const byBarycentre = barycentre(a, graph, rows) - barycentre(b, graph, rows);
+        const byBarycentre =
+          barycentre(a, routedPrerequisites, rows) - barycentre(b, routedPrerequisites, rows);
         if (byBarycentre !== 0) return byBarycentre;
-        return (inputOrder.get(a) as number) - (inputOrder.get(b) as number);
+        return orderKey(a) - orderKey(b) || (a < b ? -1 : a > b ? 1 : 0);
       });
     }
 
     layer.forEach((id, row) => rows.set(id, row));
   }
 
+  for (const edge of edges) {
+    for (const bend of edge.bends) bend.row = rows.get(bend.id) as number;
+  }
+
   const nodes = members.map((task): BlockerNode => {
+    // These stay *task* ids, not routed ones: the screen uses them to decide
+    // what a node is waiting on and whether it needs an "add after" stub, and
+    // neither question is about the bends in between.
     const prerequisiteIds = [...(graph.prerequisites.get(task.id) as string[])];
     const dependentIds = [...(graph.dependents.get(task.id) ?? [])];
-    // Both edge lists are sorted the way they will be drawn — top to bottom by
-    // the far end's position — so the SVG layer can emit them in order without
-    // re-deriving it.
     prerequisiteIds.sort(byPlacement(depths, rows));
     dependentIds.sort(byPlacement(depths, rows));
 
@@ -326,16 +434,33 @@ function layoutComponent(
     };
   });
 
-  return { id: members[0].id, nodes, layers, maxDepth };
+  const vertices: BlockerVertex[] = [
+    ...members.map((task) => ({ id: task.id, task })),
+    ...bendIds.map((id) => ({ id, task: null })),
+  ].map(({ id, task }) => ({
+    id,
+    task,
+    depth: vertexDepth.get(id) as number,
+    row: rows.get(id) as number,
+    prerequisiteIds: routedPrerequisites.get(id) ?? [],
+    dependentIds: routedDependents.get(id) ?? [],
+  }));
+
+  return { id: members[0].id, nodes, vertices, edges, layers, maxDepth };
 }
 
 /**
- * A node's pull towards its prerequisites: the mean row of the ones already
- * placed. A node with none sits where it already is.
+ * A vertex's pull towards its prerequisites: the mean row of the ones already
+ * placed. A vertex with none sits where it already is.
  */
-function barycentre(id: string, graph: Graph, rows: Map<string, number>): number {
-  const prerequisiteIds = graph.prerequisites.get(id) as string[];
-  const placed = prerequisiteIds.map((entry) => rows.get(entry)).filter((row) => row !== undefined);
+function barycentre(
+  id: string,
+  prerequisites: Map<string, string[]>,
+  rows: Map<string, number>,
+): number {
+  const placed = (prerequisites.get(id) ?? [])
+    .map((entry) => rows.get(entry))
+    .filter((row) => row !== undefined);
   if (placed.length === 0) return 0;
   return placed.reduce((sum, row) => sum + (row as number), 0) / placed.length;
 }

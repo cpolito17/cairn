@@ -827,10 +827,24 @@ Its options are re-derived as the draft grows, so picking one can remove another
 from the list and a loop cannot be built one legal-looking step at a time.
 
 **Blockers** draws every prerequisite as its own curve, all of them arriving at
-the dependent's left edge so they visibly flow into it. An edge spanning more
-than one column gets no "add after" plus: its midpoint is over an intermediate
-column, where the button would land on an unrelated node, and the task it would
-create is reachable from the prerequisite's own affordance anyway.
+the centre of the dependent's left edge so they visibly flow into it.
+
+**§7.2's "edges never pass through a node" is preserved, and it took work.** The
+forest gave it away free — every edge spanned exactly one column, so there was
+nothing in between to hit. In a graph a task can wait on something three columns
+back. So a long edge is **broken at every column it crosses**, and each break
+holds a row of its own in that column: a zero-height vertex that competes for
+vertical space with the real cards and pushes them aside, reserving a channel
+for the line. It is the dummy-vertex idea from layered graph drawing, and it is
+the only part of that literature this needs. After routing, no leg of any edge
+spans more than one column, which is the invariant the tests assert directly.
+
+The "add after" plus for an edge sits in the **first** gap that edge travels
+through — always free of cards, and the curve's own midpoint when the edge is a
+single column, so nothing changed for the ordinary case. A **stub** belongs only
+to a node with no dependents at all: one that has them already has a line
+leaving its right edge, and drawing a stub as well put a second stroke and a
+plus straight on top of the real edge.
 
 **Two fixes to the "add a task after this one" affordance**, both regressions
 from the release that introduced it:
