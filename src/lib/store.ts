@@ -438,15 +438,15 @@ export const selectUpNext = memoized((data: Data, context: Context) =>
 export const selectTaskLookup = memoized((data: Data, _key: null) => lookupOf(data.tasks));
 
 /**
- * The incomplete task this one is waiting on, or null when it is free.
+ * The incomplete tasks this one is waiting on. Empty when it is free.
  *
  * It goes through `selectTaskLookup` rather than building its own Map: this is
  * called once per visible row, and a Map per row per render is the difference
  * between one pass over the tasks and one per row.
  */
-export const selectBlockedBy = memoized((data: Data, taskId: string): Task | null => {
+export const selectBlockedBy = memoized((data: Data, taskId: string): Task[] => {
   const task = data.tasks[taskId];
-  return task ? blockedBy(task, selectTaskLookup(data, null)) : null;
+  return task ? blockedBy(task, selectTaskLookup(data, null)) : [];
 });
 
 /** Difficulty-weighted progress for a board, from `shared/progress.ts`. */
@@ -622,11 +622,11 @@ export const useBoardProgress = (boardId: string): BoardProgress =>
   useStore((state) => selectBoardProgress(state, boardId));
 
 /**
- * The incomplete task `taskId` is waiting on, or null. A row uses this to gate
- * its own completion — the rule is derived on read, so completing the
- * prerequisite releases every dependent in the same render.
+ * The incomplete tasks `taskId` is waiting on. A row uses this to gate its own
+ * completion — the rule is derived on read, so completing a prerequisite
+ * releases every dependent it frees in the same render.
  */
-export const useBlockedBy = (taskId: string): Task | null =>
+export const useBlockedBy = (taskId: string): Task[] =>
   useStore((state) => selectBlockedBy(state, taskId));
 
 /* --- positions ------------------------------------------------------------- */
@@ -834,7 +834,7 @@ export interface NewTask {
   difficulty?: Task['difficulty'];
   priority?: boolean;
   blocked?: boolean;
-  dependsOn?: string | null;
+  dependsOn?: string[];
   position: string;
 }
 
@@ -852,7 +852,7 @@ export function createTaskSpec(draft: NewTask): MutationSpec<Task> {
     difficulty: draft.difficulty ?? null,
     priority: draft.priority ?? false,
     blocked: draft.blocked ?? false,
-    dependsOn: draft.dependsOn ?? null,
+    dependsOn: draft.dependsOn ?? [],
     position: draft.position,
     createdAt: now,
     completedAt: null,

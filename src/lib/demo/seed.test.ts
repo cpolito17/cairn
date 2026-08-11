@@ -91,14 +91,17 @@ describe('the demo world', () => {
           expect(blockEnd(task)).toBeLessThanOrEqual(endOfLocalDay(task.scheduledAt));
         }
 
-        if (task.dependsOn !== null) {
-          const prerequisite = lookup.get(task.dependsOn);
+        // Every link, checked the way the Worker checks a set: one at a time
+        // against the links accepted before it, so a seed whose prerequisites
+        // are individually fine but collectively a cycle would fail here.
+        const others = state.tasks.filter((other) => other.id !== task.id);
+        let working = { ...task, dependsOn: [] as string[] };
+        for (const id of task.dependsOn) {
+          const prerequisite = lookup.get(id);
           expect(prerequisite).toBeDefined();
           expect(prerequisite?.boardId).toBe(task.boardId);
-          // Re-checked with the rule the composer and the Worker both use, so a
-          // chain in the seed cannot be one the app would refuse to build.
-          const others = state.tasks.filter((other) => other.id !== task.id);
-          expect(canDependOn(task, prerequisite!, lookupOf([...others, task]))).toBe(true);
+          expect(canDependOn(working, prerequisite!, lookupOf([...others, working]))).toBe(true);
+          working = { ...working, dependsOn: [...working.dependsOn, id] };
         }
       }
     });
@@ -129,24 +132,29 @@ describe('the demo world', () => {
       expect(live.some((task) => task.completedAt !== null)).toBe(true);
 
       // A gate that is closed, and one that has been opened by a completion.
-      const gated = live.filter((task) => blockedBy(task, lookup) !== null);
+      const gated = live.filter((task) => blockedBy(task, lookup).length > 0);
       const released = live.filter(
         (task) =>
           task.completedAt === null &&
-          task.dependsOn !== null &&
-          lookup.get(task.dependsOn)?.completedAt != null,
+          task.dependsOn.length > 0 &&
+          task.dependsOn.every((id) => lookup.get(id)?.completedAt != null),
       );
       expect(gated.length).toBeGreaterThan(3);
       expect(released.length).toBeGreaterThan(1);
 
-      // A prerequisite with more than one dependent — the fan-out the Blockers
-      // tree exists to draw.
+      // A prerequisite with more than one dependent — the fan-*out* the
+      // Blockers graph exists to draw.
       const dependents = new Map<string, number>();
       for (const task of live) {
-        if (task.dependsOn === null) continue;
-        dependents.set(task.dependsOn, (dependents.get(task.dependsOn) ?? 0) + 1);
+        for (const id of task.dependsOn) {
+          dependents.set(id, (dependents.get(id) ?? 0) + 1);
+        }
       }
       expect([...dependents.values()].some((count) => count > 1)).toBe(true);
+
+      // ...and a task waiting on more than one thing — the fan-*in*, which is
+      // what the §14 addendum added and what the demo has to show off.
+      expect(live.some((task) => task.dependsOn.length > 1)).toBe(true);
 
       // The hand-asserted blocked flag, a scheduled block with no committed
       // duration (the dotted outline), and a completed block still on the grid.

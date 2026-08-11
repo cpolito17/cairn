@@ -195,10 +195,13 @@ export function deleteBoard(boardId: string): Promise<void> {
   );
   world.tasks = world.tasks
     .filter((task) => task.boardId !== boardId)
-    // `ON DELETE SET NULL`: deleting a prerequisite releases its dependents
-    // rather than taking them with it (§6.4).
+    // The join table's cascade: deleting a prerequisite releases its dependents
+    // rather than taking them with it (§6.4). With a set of links that is a
+    // filter rather than a null-out, and the other links survive.
     .map((task) =>
-      task.dependsOn !== null && removed.has(task.dependsOn) ? { ...task, dependsOn: null } : task,
+      task.dependsOn.some((id) => removed.has(id))
+        ? { ...task, dependsOn: task.dependsOn.filter((id) => !removed.has(id)) }
+        : task,
     );
   persist();
   return ok(undefined);
@@ -223,7 +226,7 @@ export function createTask(draft: TaskDraft): Promise<Task> {
     difficulty: draft.difficulty ?? null,
     priority: draft.priority ?? false,
     blocked: draft.blocked ?? false,
-    dependsOn: draft.dependsOn ?? null,
+    dependsOn: draft.dependsOn ?? [],
     position: draft.position,
     createdAt: now,
     completedAt: null,
@@ -250,13 +253,18 @@ export function updateTask(taskId: string, patch: TaskPatch): Promise<Task> {
 
   // The one rule worth re-checking here, because it is the one that can make
   // the data unworkable rather than merely wrong: a link that closes a cycle
-  // gates every task in it forever. The composer builds its dropdown from the
-  // same function, so this refuses nothing a user could reach by hand.
-  if (next.dependsOn !== null) {
+  // gates every task in it forever. Checked a link at a time against the set
+  // accepted so far, exactly as the Worker does — two links that are each
+  // fine can close a loop together.
+  if (next.dependsOn.length > 0) {
     const others = world.tasks.filter((task) => task.id !== next.id);
-    const prerequisite = others.find((task) => task.id === next.dependsOn);
-    if (!prerequisite || !canDependOn(next, prerequisite, lookupOf([...others, next]))) {
-      fail('dependsOn must be another task on the same board');
+    let working: Task = { ...next, dependsOn: [] };
+    for (const id of next.dependsOn) {
+      const prerequisite = others.find((task) => task.id === id);
+      if (!prerequisite || !canDependOn(working, prerequisite, lookupOf([...others, working]))) {
+        fail('dependsOn must be other tasks on the same board');
+      }
+      working = { ...working, dependsOn: [...working.dependsOn, id] };
     }
   }
 
@@ -269,7 +277,11 @@ export function deleteTask(taskId: string): Promise<void> {
   const world = state();
   world.tasks = world.tasks
     .filter((task) => task.id !== taskId)
-    .map((task) => (task.dependsOn === taskId ? { ...task, dependsOn: null } : task));
+    .map((task) =>
+      task.dependsOn.includes(taskId)
+        ? { ...task, dependsOn: task.dependsOn.filter((id) => id !== taskId) }
+        : task,
+    );
   persist();
   return ok(undefined);
 }

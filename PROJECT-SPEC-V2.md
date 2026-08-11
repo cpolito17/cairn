@@ -64,7 +64,7 @@ re-litigate them.
 | **Ghost blocks carry no task name, no board, and no metadata** — a muted band reading "Busy" | The whole value of the separation is that the other context's content stays private. A ghost that leaks its name is not a ghost | No |
 | **All scheduling is local wall-clock time. No timezone is stored** | One user, one clock. A timezone column would be inert data with a migration cost | Moderate |
 | **Overlapping blocks are allowed**, packed into side-by-side lanes | Refusing an overlap means refusing to record a real double-booking, which is exactly when the user most needs to see it | Yes |
-| **The Blockers graph is a forest of trees, not a general DAG** | `dependsOn` allows at most one prerequisite per task, so every node has at most one edge leaving it to the left. Layout is a tidy-tree problem, not a layered-DAG problem, and needs no graph library | Yes — but see §11 |
+| ~~**The Blockers graph is a forest of trees, not a general DAG**~~ | `dependsOn` allowed at most one prerequisite per task, so every node had at most one edge leaving it to the left. **Revised — see §14.** A task may now wait on several, which makes it a real DAG; still no graph library | Yes — and it was |
 | **Blockers uses the neutral ramp with accent for open nodes.** Not red-for-blocked, green-for-done | §8.2 reserves `--negative` and `--positive` for semantics and forbids decorative use. A healthy dependency chain is the normal state; rendering it in alarm colour trains the user to ignore alarm colour | Yes |
 | **The year view is a workload heat map**, not one dot per task | A dot grid cannot be dropped into and answers no question. Density per day answers "when am I slammed", which is the only thing a year of a planner is good for | Yes |
 | **Month and year views are read-and-navigate only.** Drag scheduling happens in week and day views | Dropping onto a month cell has no time component, so it would need a second disambiguating step. Clicking through to the week is that step, and it is one the user already understands | Yes |
@@ -510,6 +510,14 @@ Route `/blockers`. Shows the current context only.
 
 ### 7.1 What the data actually is
 
+> **Revised by §14.** A task may now hold **several** prerequisites, so this
+> section's forest is a directed acyclic graph. What survives unchanged: links
+> stay on one board, cycles are still refused by the Worker, the layout is still
+> a pure function of the task list living in a tested shared module, and it
+> still costs no graph library. What changed is depth (the *longest* path from a
+> root, not a chain length) and vertical placement (a barycentre sweep, not a
+> tidy tree). The original text follows.
+
 `dependsOn` allows a task **at most one prerequisite**, on the same board, with
 cycles refused by the Worker. That makes each board's dependency structure a
 **forest of trees**: every node has at most one edge leaving it toward its
@@ -698,9 +706,9 @@ V2 work:
 Deliberately excluded from V2. Do not build them, and do not add abstractions
 or flags "ready" for them beyond what costs nothing.
 
-- **Multiple prerequisites per task.** The single link is what makes Blockers a
-  tidy-tree problem instead of a layered-DAG one. Revisit after living with the
-  visualization, not before.
+- ~~**Multiple prerequisites per task.**~~ **Built — see §14.** It was revisited
+  after living with the visualization, which is exactly the condition this entry
+  set.
 - **Dependencies that cross boards**, and any gate whose cause is somewhere the
   user is not looking.
 - **Splitting one task across several blocks.** Two sittings is two tasks.
@@ -782,3 +790,60 @@ something this build was supposed to do.
   anything itself.
 - **Difficulty-aware scheduling hints** — putting the 5s in the morning — which
   is the first thing in this project that would need an opinion of its own.
+
+---
+
+## 14. Addendum — many prerequisites per task
+
+Added after the Planner and Blockers shipped, and a deliberate revision of §2's
+"forest of trees" row, of §7.1's data description, and of §11's exclusion. §12
+recorded this as the first V3 idea; living with the single link is what made the
+case, which is the condition §11 set for revisiting it.
+
+**What changed.** A task may wait on **any number** of other tasks on the same
+board, and it waits for **all** of them. Everything else about a dependency is
+unchanged: links never cross boards, cycles are refused, the gate is derived on
+read and never stored, completing a prerequisite releases whatever it frees in
+the same render, and deleting one releases its dependents rather than taking
+them with it.
+
+**Decisions, in the register of §2:**
+
+| Decision | Rationale | Cheap to change later? |
+|---|---|---|
+| **All-of, not any-of.** A task with three prerequisites waits for all three | An "any one of these releases it" edge would be a second kind of arrow, and a graph whose edges mean two different things is one nobody can read at a glance | Yes |
+| **The links move to a join table**, and `tasks.depends_on` is dropped | A set does not fit in a column. Leaving the column behind as well would be a second, immediately-stale answer to the same question | No — one-way migration |
+| **Depth is the *longest* path from a root** | A task must be drawn right of *every* prerequisite. Taking the shortest path, or the first link's, puts an edge travelling leftwards on screen, which reads as the dependency pointing the wrong way | No |
+| **Groups are connected components, not trees** | With several parents there is no single root to name a group by. Two tasks belong in one drawing if any chain of links joins them, in either direction | No |
+| **Vertical order is a two-sweep barycentre pass**, not tidy-tree centring | With one parent, centring over the children is exact. With several, no arrangement satisfies every edge, so each column is ordered by the average position of its neighbours — left-to-right, then right-to-left balancing both sides so a join sits between its branches instead of in line with whatever follows it | Yes |
+| **Still no graph library** | The layout is a topological sort and two sweeps. It is a hundred lines of tested pure function against a kilobyte-scale dependency, and §5's bundle bar has not moved | Yes |
+| **Cycle refusal walks the graph, not a chain** | Two links that are each legal can close a loop together, so a set is validated one link at a time against the links accepted before it, and reachability is a depth-first search with three-state colouring — a plain visited set cannot tell a diamond from a cycle | No |
+| **A cap of 25 prerequisites per task** | Not a domain rule. An unbounded array from an untrusted body is an unbounded batch of inserts, and a task waiting on fifty others is not something anyone can read | Yes |
+
+**The composer** replaces its single "Waiting on" dropdown with the picked
+prerequisites as removable chips plus a select that adds one more. The select
+never shows a current value — the chips are the state, the select is the verb.
+Its options are re-derived as the draft grows, so picking one can remove another
+from the list and a loop cannot be built one legal-looking step at a time.
+
+**Blockers** draws every prerequisite as its own curve, all of them arriving at
+the dependent's left edge so they visibly flow into it. An edge spanning more
+than one column gets no "add after" plus: its midpoint is over an intermediate
+column, where the button would land on an unrelated node, and the task it would
+create is reachable from the prerequisite's own affordance anyway.
+
+**Two fixes to the "add a task after this one" affordance**, both regressions
+from the release that introduced it:
+
+- The plus stayed lit after the composer closed, because closing returns focus
+  to the button that opened it and the reveal was gated on `:focus-within`. It
+  is now `:has(:focus-visible)`, which a mouse click does not set — so the
+  keyboard path keeps its reveal and the pointer path lets go.
+- The plus at the end of a chain never appeared at rest, leaving a stub line
+  trailing into empty space with nothing to explain it. Stub pluses now rest at
+  the same reduced contrast touch devices get, and brighten on hover. Edge
+  pluses stay hover-only: the line they sit on is drawn either way, so the
+  picture is complete without them.
+
+**Still out of scope**, unchanged from §11: dependencies that cross boards, and
+any gate whose cause is somewhere the user is not looking.

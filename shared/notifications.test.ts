@@ -63,7 +63,7 @@ function task(overrides: Partial<Task> = {}): Task {
     difficulty: null,
     priority: false,
     blocked: false,
-    dependsOn: null,
+    dependsOn: [],
     position: `a${seq}`,
     createdAt: 0,
     completedAt: null,

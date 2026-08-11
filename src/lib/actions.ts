@@ -43,8 +43,13 @@ export function toggleComplete(task: Task): void {
   // 409, so a stale client cannot get around it either.
   if (completing) {
     const waiting = blockedBy(task, lookupOf(store.tasks));
-    if (waiting) {
-      toast.info(`"${task.name}" is waiting on "${waiting.name}".`);
+    if (waiting.length > 0) {
+      // One name plus a count, rather than a list: a toast with four task names
+      // in it is a toast nobody reads, and the composer is where the whole set
+      // is visible anyway.
+      const others = waiting.length - 1;
+      const rest = others === 0 ? '' : ` and ${others} other task${others === 1 ? '' : 's'}`;
+      toast.info(`"${task.name}" is waiting on "${waiting[0].name}"${rest}.`);
       return;
     }
   }

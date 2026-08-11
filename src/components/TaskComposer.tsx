@@ -19,8 +19,8 @@
  * sheet is a dead end the user has to reverse-engineer.
  */
 
-import { Flag, Minus, Plus, Prohibit } from '@phosphor-icons/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Flag, LinkSimple, Minus, Plus, Prohibit, X } from '@phosphor-icons/react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { addTask } from '../lib/actions';
 import { hasFinePointer } from '../lib/motion';
 import {
@@ -69,7 +69,7 @@ interface Draft {
   priority: boolean;
   blocked: boolean;
   /** '' means "not waiting on anything" — a select cannot hold null. */
-  dependsOn: string;
+  dependsOn: string[];
 }
 
 function draftOf(task: Task | undefined): Draft {
@@ -82,7 +82,7 @@ function draftOf(task: Task | undefined): Draft {
     difficulty: task?.difficulty ?? null,
     priority: task?.priority ?? false,
     blocked: task?.blocked ?? false,
-    dependsOn: task?.dependsOn ?? '',
+    dependsOn: task?.dependsOn ?? [],
   };
 }
 
@@ -96,8 +96,15 @@ function same(a: Draft, b: Draft): boolean {
     a.difficulty === b.difficulty &&
     a.priority === b.priority &&
     a.blocked === b.blocked &&
-    a.dependsOn === b.dependsOn
+    // Compared by content, not identity: a new array with the same ids is the
+    // same draft, and an identity check here would make every re-render of the
+    // composer look like an unsaved change on close.
+    sameIds(a.dependsOn, b.dependsOn)
   );
+}
+
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
 export interface TaskComposerProps {
@@ -131,7 +138,7 @@ export function TaskComposer({
     const draft = draftOf(task);
     // Edit mode is seeded by the task itself; a caller's suggestion has no
     // standing against what is already stored.
-    if (task === undefined && initialDependsOn) draft.dependsOn = initialDependsOn;
+    if (task === undefined && initialDependsOn) draft.dependsOn = [initialDependsOn];
     return draft;
   }, [task, initialDependsOn]);
   const [draft, setDraft] = useState<Draft>(initial);
@@ -197,7 +204,7 @@ export function TaskComposer({
     if (draft.difficulty !== initial.difficulty) next.difficulty = draft.difficulty;
     if (draft.priority !== initial.priority) next.priority = draft.priority;
     if (draft.blocked !== initial.blocked) next.blocked = draft.blocked;
-    if (draft.dependsOn !== initial.dependsOn) next.dependsOn = draft.dependsOn || null;
+    if (!sameIds(draft.dependsOn, initial.dependsOn)) next.dependsOn = draft.dependsOn;
     return next;
   }
 
@@ -230,7 +237,7 @@ export function TaskComposer({
         difficulty: draft.difficulty,
         priority: draft.priority,
         blocked: draft.blocked,
-        dependsOn: draft.dependsOn || null,
+        dependsOn: draft.dependsOn,
       });
     }
     onClose();
@@ -619,14 +626,24 @@ export function Toggle({
 }
 
 /**
- * "Waiting on" — the one dependency a task may hold (§6.4).
+ * "Waiting on" — every task this one is held up by (§6.4, §14 addendum).
+ *
+ * A set, not a choice, which is why this is a list of what has been picked plus
+ * a control to pick one more, rather than a single dropdown. The chips are the
+ * record and the select is the verb: the select never shows a current value,
+ * it returns to "Add a task…" after every pick, because it is not displaying
+ * state — the chips above it are.
  *
  * The options are every other task on the same board that `canDependOn`
- * allows, which is the same function the Worker validates with: the list
- * cannot offer something the server would refuse. In create mode the task does
- * not exist yet, so a stand-in carrying the destination board is what the rule
- * is applied to — nothing can point at an id that has not been minted, so no
- * cycle is reachable and the filter reduces to "on this board".
+ * allows, which is the same function the Worker validates with: the list cannot
+ * offer something the server would refuse. That includes tasks already picked
+ * (they are no longer options) and anything that would close a cycle, which is
+ * re-derived on every render as the draft grows — so picking A can remove B
+ * from the list, and the user cannot build a loop one legal-looking step at a
+ * time.
+ *
+ * In create mode the task does not exist yet, so a stand-in carrying the
+ * destination board and the draft's own links is what the rule is applied to.
  *
  * Completed tasks stay in the list. Depending on something already done is
  * legal and simply gates nothing, and dropping them would make the options
@@ -640,39 +657,89 @@ export function DependsOn({
 }: {
   task: Task | undefined;
   boardId: string;
-  value: string;
-  onChange(value: string): void;
+  value: string[];
+  onChange(value: string[]): void;
 }) {
   const tasks = useStore((state) => state.tasks);
+  const selectId = useId();
+
+  const chosen = useMemo(
+    () => value.map((id) => tasks[id]).filter((entry): entry is Task => entry !== undefined),
+    [value, tasks],
+  );
 
   const options = useMemo(() => {
-    const subject: Task = task ?? ({ id: '', boardId } as Task);
+    // The subject carries the *draft's* links, not the stored task's, so the
+    // cycle filter reflects what the user has picked in this sitting.
+    const base: Task = task ?? ({ id: '', boardId } as Task);
+    const subject: Task = { ...base, boardId, dependsOn: value };
     const candidates = Object.values(tasks)
       .filter((candidate) => candidate.boardId === boardId)
       .sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0));
     return dependencyOptions(subject, candidates, lookupOf(tasks));
-  }, [task, boardId, tasks]);
+  }, [task, boardId, tasks, value]);
 
-  if (options.length === 0) return null;
+  // Nothing picked and nothing pickable: the board has one task on it, and a
+  // field that can only say "no" is one to leave out.
+  if (options.length === 0 && chosen.length === 0) return null;
 
   return (
-    <label className="block">
+    <div className="block">
       <FieldLabel>Waiting on</FieldLabel>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-control border-0 bg-surface-2 px-4 text-row text-text
-                   outline-none focus-visible:outline-2 focus-visible:outline-accent"
-        style={{ height: 'var(--tap-target)' }}
-      >
-        <option value="">Nothing</option>
-        {options.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.completedAt !== null ? `${option.name} (done)` : option.name}
-          </option>
-        ))}
-      </select>
-    </label>
+
+      {chosen.length > 0 && (
+        <ul className="mb-2 flex flex-wrap gap-2">
+          {chosen.map((prerequisite) => (
+            <li key={prerequisite.id}>
+              <button
+                type="button"
+                onClick={() => onChange(value.filter((id) => id !== prerequisite.id))}
+                aria-label={`Stop waiting on ${prerequisite.name}`}
+                className="pressable flex max-w-full items-center gap-2 rounded-chip bg-surface-2
+                           px-3 text-left text-meta"
+                style={{ minHeight: '32px', color: 'var(--text-secondary)' }}
+              >
+                <LinkSimple size={14} className="shrink-0" />
+                <span className="truncate">
+                  {prerequisite.completedAt !== null
+                    ? `${prerequisite.name} (done)`
+                    : prerequisite.name}
+                </span>
+                {/* The X is the whole button's job, not a nested one: a
+                    remove control inside a chip that is itself a button is two
+                    targets in 32px, and neither of them is 44. */}
+                <X size={14} className="shrink-0" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {options.length > 0 && (
+        <select
+          id={selectId}
+          aria-label="Add a task to wait on"
+          // Always empty. Picking an option fires `onChange` and the value
+          // returns here, so the control reads as an action rather than as a
+          // field showing the last thing chosen.
+          value=""
+          onChange={(event) => {
+            if (event.target.value === '') return;
+            onChange([...value, event.target.value]);
+          }}
+          className="w-full rounded-control border-0 bg-surface-2 px-4 text-row text-text
+                     outline-none focus-visible:outline-2 focus-visible:outline-accent"
+          style={{ height: 'var(--tap-target)' }}
+        >
+          <option value="">{chosen.length === 0 ? 'Nothing' : 'Add another task…'}</option>
+          {options.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.completedAt !== null ? `${option.name} (done)` : option.name}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
   );
 }
 

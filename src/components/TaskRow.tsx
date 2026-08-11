@@ -32,6 +32,7 @@ import { useBlockedBy } from '../lib/store';
 import type { Task } from '../../shared/types';
 import { Chip } from './ui/Chip';
 import { Pips } from './ui/Pips';
+import { waitingSummary } from '../../shared/dependencies';
 
 /** §8.5: the check draws in over ~180ms, the crossfades run over ~150ms. */
 const CHECK_MS = 180;
@@ -116,7 +117,7 @@ export function TaskRow({ task, onOpen, onToggle, highlighted = false }: TaskRow
       <Checkbox
         checked={shown}
         name={task.name}
-        waitingOn={waiting?.name ?? null}
+        waitingOn={waitingSummary(waiting)}
         onToggle={(viaKeyboard) => onToggle(task, viaKeyboard)}
       />
 
@@ -192,9 +193,9 @@ export function TaskRow({ task, onOpen, onToggle, highlighted = false }: TaskRow
             <Chip icon={<Prohibit size={16} />} muted={shown} aria-label="Blocked" />
           )}
           {task.notes && <Chip icon={<Note size={16} />} muted={shown} aria-label="Has notes" />}
-          {waiting && (
+          {waiting.length > 0 && (
             <Chip icon={<LinkSimple size={16} />} tone="secondary" muted={shown}>
-              Waiting on {waiting.name}
+              Waiting on {waitingSummary(waiting)}
             </Chip>
           )}
         </span>
