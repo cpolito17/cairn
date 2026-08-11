@@ -69,9 +69,16 @@ export function Board({ id }: { id: string }) {
   // Up Next hands the target over in the history entry (§6.7). Reading it is a
   // one-shot: `consumeNavState` clears the entry so a later back-navigation
   // onto it does not re-highlight a task the user has long since dealt with.
+  //
+  // A tapped due reminder arrives the other way. The service worker opens a
+  // real URL — `/board/:id?task=:taskId` — because a notification tap is a cold
+  // navigation from outside the app, where there is no history entry to carry
+  // state in. The query parameter is consumed the same way: read once, then
+  // stripped from the URL so a reload or a share of that address does not
+  // re-highlight a task the user dealt with days ago.
   const [target, setTarget] = useState<string | null>(null);
   useEffect(() => {
-    setTarget(consumeNavState()?.highlightTaskId ?? null);
+    setTarget(consumeNavState()?.highlightTaskId ?? consumeTaskQuery());
   }, [id]);
   const highlighted = useHighlight(target);
 
@@ -338,4 +345,22 @@ function BoardError() {
       {loadErrorMessage('this board’s tasks', failure)}
     </ErrorLine>
   );
+}
+
+/**
+ * The `?task=` a notification tap arrives with, read once and then removed.
+ *
+ * Removed with `replaceState` rather than a navigation: the address bar should
+ * stop advertising a highlight that has already happened, and pushing a second
+ * entry would make the back button undo nothing visible.
+ */
+function consumeTaskQuery(): string | null {
+  if (typeof window === 'undefined') return null;
+  const url = new URL(window.location.href);
+  const taskId = url.searchParams.get('task');
+  if (taskId === null) return null;
+
+  url.searchParams.delete('task');
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}`);
+  return taskId;
 }

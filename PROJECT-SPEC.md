@@ -50,7 +50,7 @@ These are settled. Do not re-litigate them.
 | **Unset difficulty is treated as 3** in the weighting | Makes the weighted formula collapse exactly to plain completed/total on a board where nobody set difficulties — no special-casing, no surprising behavior | Yes |
 | **Priority is a binary flag**, not a second 1–5 scale | Two five-point dials per task means the user answers two fuzzy questions and starts skipping both. One precise question beats two vague ones | Yes |
 | **No recurring tasks** | Recurrence rules, instance generation, and series-vs-instance completion semantics are a multi-week feature. Explicitly rejected for v1 | Moderate |
-| **No push notifications or reminders** | Requires push infrastructure and permission flows | Yes |
+| **No push notifications or reminders** | Requires push infrastructure and permission flows. *(Revised after V2 — see `PROJECT-SPEC-V2.md` §13. The "cheap to change" column was right.)* | Yes |
 | **No tags/labels in v1** | A per-tab colored tag set fights the one-accent design law and adds visual clutter to the exact surface that must stay calm | Yes |
 | **Drag-and-drop reorders within a single board only.** Moving between boards happens through a menu action | Cross-board dragging is a much harder interaction problem serving a rare action | Yes |
 | **Up Next is anchored at the top of each tab and is per-tab** — Personal's Up Next never shows Work tasks | Stated requirement; context separation is the point of having tabs | Yes |
@@ -496,7 +496,9 @@ Reached from the header overflow menu. A simple list of archived boards in the c
 These are deliberately excluded from v1. Do not build them. Do not add abstractions, flags, or scaffolding "ready" for them beyond what costs nothing:
 
 - Recurring tasks and any recurrence rule system
-- Push notifications, reminders, and email digests
+- ~~Push notifications, reminders, and email digests~~ — **revised after V2.**
+  Push notifications and a daily digest now exist; see `PROJECT-SPEC-V2.md` §13
+  and `docs/NOTIFICATIONS.md`. Email digests remain excluded.
 - Offline write queueing, sync, and conflict resolution
 - Tags, labels, or any user-defined taxonomy
 - Sub-tasks nested inside tasks

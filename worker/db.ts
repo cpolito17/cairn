@@ -18,6 +18,16 @@ export interface Env {
    * `worker/auth.ts` and docs/PASSWORD-SETUP.md. There is no default.
    */
   AUTH_PASSWORD?: string;
+  /**
+   * The VAPID key pair and contact address, as Worker secrets. All three are
+   * optional in the type for the same reason `AUTH_PASSWORD` is: a deployment
+   * without them is a real, working deployment that simply has notifications
+   * switched off, and it must not fail to boot over that. `worker/push/vapid.ts`
+   * is where their absence is turned into a decision.
+   */
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
 }
 
 /**
@@ -372,4 +382,180 @@ export async function upsertSettings(
     .bind(SETTINGS_KEY, JSON.stringify(settings), now)
     .run();
   return settings;
+}
+
+/* --- push notifications ---------------------------------------------------- */
+
+/**
+ * A browser that has granted notification permission.
+ *
+ * Deliberately absent from `AppState`: this is not app data, it is a device's
+ * relationship with a push service, and the only client that can meaningfully
+ * ask about it is the one holding the subscription.
+ */
+export interface PushSubscriptionRecord {
+  endpoint: string;
+  /** base64url, exactly as the browser reported it. */
+  p256dh: string;
+  /** base64url. */
+  auth: string;
+  userAgent: string | null;
+  createdAt: number;
+  lastSuccessAt: number | null;
+  lastFailureAt: number | null;
+  failureCount: number;
+}
+
+interface PushSubscriptionRow {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  user_agent: string | null;
+  created_at: number;
+  last_success_at: number | null;
+  last_failure_at: number | null;
+  failure_count: number;
+}
+
+function rowToSubscription(row: PushSubscriptionRow): PushSubscriptionRecord {
+  return {
+    endpoint: row.endpoint,
+    p256dh: row.p256dh,
+    auth: row.auth,
+    userAgent: row.user_agent,
+    createdAt: row.created_at,
+    lastSuccessAt: row.last_success_at,
+    lastFailureAt: row.last_failure_at,
+    failureCount: row.failure_count,
+  };
+}
+
+const SUBSCRIPTION_COLUMNS =
+  'endpoint, p256dh, auth, user_agent, created_at, last_success_at, last_failure_at, failure_count';
+
+export async function selectPushSubscriptions(
+  db: D1Database,
+): Promise<PushSubscriptionRecord[]> {
+  const { results } = await db
+    .prepare(`SELECT ${SUBSCRIPTION_COLUMNS} FROM push_subscriptions ORDER BY created_at`)
+    .all<PushSubscriptionRow>();
+  return results.map(rowToSubscription);
+}
+
+/**
+ * Record a subscription, replacing any earlier row for the same endpoint.
+ *
+ * The upsert resets the failure counters as well as the keys. A browser that
+ * re-subscribes has produced fresh key material, so whatever went wrong with
+ * the previous attempt is not evidence about this one.
+ */
+export async function upsertPushSubscription(
+  db: D1Database,
+  subscription: { endpoint: string; p256dh: string; auth: string; userAgent: string | null },
+  now = Date.now(),
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO push_subscriptions
+         (endpoint, p256dh, auth, user_agent, created_at, last_success_at, last_failure_at, failure_count)
+       VALUES (?, ?, ?, ?, ?, NULL, NULL, 0)
+       ON CONFLICT(endpoint) DO UPDATE SET
+         p256dh = excluded.p256dh,
+         auth = excluded.auth,
+         user_agent = excluded.user_agent,
+         last_failure_at = NULL,
+         failure_count = 0`,
+    )
+    .bind(
+      subscription.endpoint,
+      subscription.p256dh,
+      subscription.auth,
+      subscription.userAgent,
+      now,
+    )
+    .run();
+}
+
+export async function deletePushSubscription(db: D1Database, endpoint: string): Promise<void> {
+  await db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(endpoint).run();
+}
+
+export async function countPushSubscriptions(db: D1Database): Promise<number> {
+  const row = await db
+    .prepare('SELECT COUNT(*) AS count FROM push_subscriptions')
+    .first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
+/** A delivery succeeded: stamp it and clear the consecutive-failure run. */
+export async function recordPushSuccess(
+  db: D1Database,
+  endpoint: string,
+  now = Date.now(),
+): Promise<void> {
+  await db
+    .prepare(
+      'UPDATE push_subscriptions SET last_success_at = ?, failure_count = 0 WHERE endpoint = ?',
+    )
+    .bind(now, endpoint)
+    .run();
+}
+
+/** A delivery failed for a reason that is not "this subscription is gone". */
+export async function recordPushFailure(
+  db: D1Database,
+  endpoint: string,
+  now = Date.now(),
+): Promise<void> {
+  await db
+    .prepare(
+      'UPDATE push_subscriptions SET last_failure_at = ?, failure_count = failure_count + 1 WHERE endpoint = ?',
+    )
+    .bind(now, endpoint)
+    .run();
+}
+
+/* --- the sent ledger ------------------------------------------------------- */
+
+/** How long a sent key is kept. Comfortably longer than any catch-up window. */
+const LOG_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * The keys sent recently enough to still suppress a duplicate.
+ *
+ * Bounded by the retention window rather than reading the whole table, so this
+ * stays a small query however long the deployment has been running.
+ */
+export async function selectSentKeys(db: D1Database, now = Date.now()): Promise<Set<string>> {
+  const { results } = await db
+    .prepare('SELECT key FROM notification_log WHERE sent_at >= ?')
+    .bind(now - LOG_RETENTION_MS)
+    .all<{ key: string }>();
+  return new Set(results.map((row) => row.key));
+}
+
+/**
+ * Mark a notification as sent.
+ *
+ * `OR IGNORE` rather than an upsert: if the key is already there, the earlier
+ * send is the one that counts, and overwriting its timestamp would extend the
+ * suppression window for no reason.
+ */
+export async function recordSentKey(
+  db: D1Database,
+  key: string,
+  now = Date.now(),
+): Promise<void> {
+  await db
+    .prepare('INSERT OR IGNORE INTO notification_log (key, sent_at) VALUES (?, ?)')
+    .bind(key, now)
+    .run();
+}
+
+/** Drop ledger rows past the retention window. */
+export async function pruneSentKeys(db: D1Database, now = Date.now()): Promise<void> {
+  await db
+    .prepare('DELETE FROM notification_log WHERE sent_at < ?')
+    .bind(now - LOG_RETENTION_MS)
+    .run();
 }

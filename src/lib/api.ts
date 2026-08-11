@@ -323,3 +323,57 @@ export function putSettings(settings: Settings): Promise<Settings> {
   if (demo.isDemo()) return demo.putSettings(settings);
   return callJson<Settings>('/api/settings', { method: 'PUT', body: settings });
 }
+
+/* --- push notifications ---------------------------------------------------- */
+
+/** True when this tab is running the demo world rather than a real session. */
+export function isDemoMode(): boolean {
+  return demo.isDemo();
+}
+
+/** What the deployment can do about notifications, and how many devices exist. */
+export interface PushStatus {
+  /** False when the Worker has no VAPID secrets — nothing can be sent. */
+  configured: boolean;
+  /** The application server key a browser must subscribe with. */
+  publicKey: string | null;
+  devices: number;
+}
+
+export interface PushSubscriptionBody {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  userAgent?: string;
+}
+
+/** What one test send did. */
+export interface PushTestOutcome {
+  planned: number;
+  sent: number;
+  failed: number;
+  pruned: number;
+}
+
+/**
+ * Push endpoints have no demo branch, unlike everything above.
+ *
+ * The demo world is a store in a browser tab; there is no server behind it to
+ * hold a subscription and no cron to fire one. `lib/push` reports `'demo'` as a
+ * blocker before any of these are reached, so the settings sheet explains
+ * itself rather than failing at a fetch.
+ */
+export function getPushStatus(): Promise<PushStatus> {
+  return callJson<PushStatus>('/api/push');
+}
+
+export async function savePushSubscription(body: PushSubscriptionBody): Promise<void> {
+  await call('/api/push', { method: 'POST', body });
+}
+
+export async function deletePushSubscription(endpoint: string): Promise<void> {
+  await call('/api/push', { method: 'DELETE', body: { endpoint } });
+}
+
+export function sendTestPush(): Promise<PushTestOutcome> {
+  return callJson<PushTestOutcome>('/api/push/test', { method: 'POST' });
+}

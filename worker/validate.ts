@@ -12,7 +12,7 @@
  */
 
 import { crossesMidnight, effectiveMinutes, isSnapped } from '../shared/schedule';
-import { isDayMinute, isPlannerSort, isPlannerView } from '../shared/settings';
+import { isDayMinute, isMomentInDay, isPlannerSort, isPlannerView } from '../shared/settings';
 import {
   MAX_DURATION_MINUTES,
   MIN_DURATION_MINUTES,
@@ -20,6 +20,8 @@ import {
   isBoardAccent,
   isContext,
   isDifficulty,
+  isReminderLead,
+  isTimeZone,
   isValidDurationMinutes,
 } from '../shared/types';
 import type { Context, Difficulty, Settings, Task } from '../shared/types';
@@ -202,12 +204,36 @@ export function requiredSettings(value: unknown): Settings {
     throw new BadRequest("plannerSort must be 'priority', 'difficulty', 'dueDate', or 'duration'");
   }
 
+  if (typeof raw.notificationsEnabled !== 'boolean') {
+    throw new BadRequest('notificationsEnabled must be true or false');
+  }
+  // The zone is what turns "8:00 AM" into an instant the cron can compare
+  // against. A zone the runtime does not know would leave the scheduled job
+  // throwing once a minute, forever, with nothing on screen to say why.
+  if (!isTimeZone(raw.timeZone)) {
+    throw new BadRequest('timeZone must be an IANA time zone name');
+  }
+  if (!isMomentInDay(raw.weekdayStartMinutes)) {
+    throw new BadRequest('weekdayStartMinutes must be an integer between 0 and 1439');
+  }
+  if (!isMomentInDay(raw.weekendStartMinutes)) {
+    throw new BadRequest('weekendStartMinutes must be an integer between 0 and 1439');
+  }
+  if (!isReminderLead(raw.dueReminderLeadMinutes)) {
+    throw new BadRequest('dueReminderLeadMinutes must be a supported lead time, or null');
+  }
+
   return {
     workdayStartMinutes: raw.workdayStartMinutes,
     workdayEndMinutes: raw.workdayEndMinutes,
     plannerView: raw.plannerView,
     plannerGroupByBoard: raw.plannerGroupByBoard,
     plannerSort: raw.plannerSort,
+    notificationsEnabled: raw.notificationsEnabled,
+    timeZone: raw.timeZone,
+    weekdayStartMinutes: raw.weekdayStartMinutes,
+    weekendStartMinutes: raw.weekendStartMinutes,
+    dueReminderLeadMinutes: raw.dueReminderLeadMinutes,
   };
 }
 

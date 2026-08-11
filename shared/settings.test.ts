@@ -24,6 +24,11 @@ describe('parseStoredSettings', () => {
       plannerView: 'month' as const,
       plannerGroupByBoard: true,
       plannerSort: 'difficulty' as const,
+      notificationsEnabled: true,
+      timeZone: 'America/Detroit',
+      weekdayStartMinutes: 450,
+      weekendStartMinutes: 630,
+      dueReminderLeadMinutes: 15,
     };
     expect(parseStoredSettings(JSON.stringify(settings))).toEqual(settings);
   });
@@ -40,10 +45,9 @@ describe('coerceSettings', () => {
         plannerSort: 'duration',
       }),
     ).toEqual({
+      ...DEFAULT_SETTINGS,
       workdayStartMinutes: 480,
       workdayEndMinutes: 960,
-      plannerView: DEFAULT_SETTINGS.plannerView,
-      plannerGroupByBoard: DEFAULT_SETTINGS.plannerGroupByBoard,
       plannerSort: 'duration',
     });
   });
@@ -83,5 +87,35 @@ describe('coerceSettings', () => {
 
   it('ignores fields it does not know about', () => {
     expect(coerceSettings({ ...DEFAULT_SETTINGS, theme: 'dusk' })).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it('leaves notifications off when the flag is unreadable', () => {
+    // Not merely "falls back to the default" — the default happens to be false,
+    // and this is asserting the stronger rule: nothing but a literal `true`
+    // turns notifications on, so a corrupt document can never start pushing.
+    expect(coerceSettings({ notificationsEnabled: 'yes' }).notificationsEnabled).toBe(false);
+    expect(coerceSettings({ notificationsEnabled: 1 }).notificationsEnabled).toBe(false);
+    expect(coerceSettings({ notificationsEnabled: true }).notificationsEnabled).toBe(true);
+  });
+
+  it('refuses a time zone the runtime does not know', () => {
+    expect(coerceSettings({ timeZone: 'Mars/Olympus_Mons' }).timeZone).toBe(
+      DEFAULT_SETTINGS.timeZone,
+    );
+    expect(coerceSettings({ timeZone: 'America/Detroit' }).timeZone).toBe('America/Detroit');
+  });
+
+  it('refuses a start-of-day at 1440, which no clock ever reads', () => {
+    expect(coerceSettings({ weekdayStartMinutes: 1440 }).weekdayStartMinutes).toBe(
+      DEFAULT_SETTINGS.weekdayStartMinutes,
+    );
+    expect(coerceSettings({ weekendStartMinutes: 1439 }).weekendStartMinutes).toBe(1439);
+  });
+
+  it('keeps null as a reminder lead, which means no per-task reminders', () => {
+    expect(coerceSettings({ dueReminderLeadMinutes: null }).dueReminderLeadMinutes).toBeNull();
+    expect(coerceSettings({ dueReminderLeadMinutes: 7 }).dueReminderLeadMinutes).toBe(
+      DEFAULT_SETTINGS.dueReminderLeadMinutes,
+    );
   });
 });

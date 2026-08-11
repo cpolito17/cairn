@@ -19,6 +19,7 @@ import { apiError, json } from '../http';
 import { BadRequest } from '../validate';
 import { handleAuth } from './auth';
 import { handleBoards } from './boards';
+import { handlePush } from './push';
 import { handleSettings } from './settings';
 import { handleTasks } from './tasks';
 import { handleEvents } from './events';
@@ -71,7 +72,8 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       handleBoards(request, env, pathname) ??
       handleTasks(request, env, pathname) ??
       handleEvents(request, env, pathname) ??
-      handleSettings(request, env, pathname);
+      handleSettings(request, env, pathname) ??
+      handlePush(request, env, pathname);
     if (response) return await response;
 
     return apiError('Not found', 404);

@@ -23,6 +23,8 @@
 import {
   PLANNER_SORTS,
   PLANNER_VIEWS,
+  isReminderLead,
+  isTimeZone,
   type PlannerSort,
   type PlannerView,
   type Settings,
@@ -44,6 +46,17 @@ export const DEFAULT_SETTINGS: Settings = {
   plannerView: 'week',
   plannerGroupByBoard: false,
   plannerSort: 'dueDate',
+
+  // Notifications are off until asked for, because turning them on is a
+  // permission prompt and a subscription, not a preference.
+  notificationsEnabled: false,
+  // UTC rather than a guess at where the owner lives: a wrong-looking zone in
+  // the picker is a thing you notice and fix, and a plausible-looking wrong one
+  // is a thing you do not. The sheet offers the device's own zone in one tap.
+  timeZone: 'UTC',
+  weekdayStartMinutes: 480, // 8:00 AM, Mon–Fri
+  weekendStartMinutes: 600, // 10:00 AM, Sat–Sun
+  dueReminderLeadMinutes: 5,
 };
 
 /** A minute offset inside a day: an integer in [0, 1440]. */
@@ -54,6 +67,17 @@ export function isDayMinute(value: unknown): value is number {
     value >= 0 &&
     value <= MINUTES_PER_DAY
   );
+}
+
+/**
+ * A minute offset that names a *moment in* a day: an integer in [0, 1439].
+ *
+ * Distinct from `isDayMinute`, which accepts 1440 because a workday *end* of
+ * midnight is a real answer. A start-of-day notification time at 1440 is not:
+ * the clock never reads 24:00, so the digest would simply never fire, silently.
+ */
+export function isMomentInDay(value: unknown): value is number {
+  return isDayMinute(value) && value < MINUTES_PER_DAY;
 }
 
 export function isPlannerView(value: unknown): value is PlannerView {
@@ -115,5 +139,22 @@ export function coerceSettings(value: unknown): Settings {
         ? raw.plannerGroupByBoard
         : DEFAULT_SETTINGS.plannerGroupByBoard,
     plannerSort: isPlannerSort(raw.plannerSort) ? raw.plannerSort : DEFAULT_SETTINGS.plannerSort,
+
+    // Notifications default *closed* on anything unreadable. Every other field
+    // here falls back to something the user will notice and correct; a
+    // notification field that fell back to "on" would send a push at an hour
+    // nobody chose, which is the one failure mode this feature must not have.
+    notificationsEnabled:
+      typeof raw.notificationsEnabled === 'boolean' ? raw.notificationsEnabled : false,
+    timeZone: isTimeZone(raw.timeZone) ? raw.timeZone : DEFAULT_SETTINGS.timeZone,
+    weekdayStartMinutes: isMomentInDay(raw.weekdayStartMinutes)
+      ? raw.weekdayStartMinutes
+      : DEFAULT_SETTINGS.weekdayStartMinutes,
+    weekendStartMinutes: isMomentInDay(raw.weekendStartMinutes)
+      ? raw.weekendStartMinutes
+      : DEFAULT_SETTINGS.weekendStartMinutes,
+    dueReminderLeadMinutes: isReminderLead(raw.dueReminderLeadMinutes)
+      ? raw.dueReminderLeadMinutes
+      : DEFAULT_SETTINGS.dueReminderLeadMinutes,
   };
 }
