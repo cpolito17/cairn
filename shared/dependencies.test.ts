@@ -8,6 +8,10 @@ import {
   isGated,
   lookupOf,
   normalizeDependsOn,
+  planLink,
+  planRetarget,
+  planSplice,
+  planUnlink,
 } from './dependencies';
 import type { Task } from './types';
 
@@ -231,5 +235,161 @@ describe('normalizeDependsOn', () => {
   it('leaves a clean list alone', () => {
     expect(normalizeDependsOn('me', ['a', 'b'])).toEqual(['a', 'b']);
     expect(normalizeDependsOn('me', [])).toEqual([]);
+  });
+});
+
+/**
+ * The four edit planners behind the Blockers page's drag gestures.
+ *
+ * Each one returns the `dependsOn` a task should end up with, or null for a
+ * refusal. They are tested here rather than through the screen because they are
+ * where the graph's correctness actually lives: the drag uses them to decide
+ * what to highlight and the Worker re-checks the result, so a planner that says
+ * yes to a cycle is a cycle in the database.
+ */
+describe('planLink', () => {
+  it('appends the prerequisite, keeping the existing order', () => {
+    const a = task({ id: 'a' });
+    const b = task({ id: 'b' });
+    const c = task({ id: 'c', dependsOn: ['a'] });
+    expect(planLink(c, b, lookupOf([a, b, c]))).toEqual({
+      taskId: 'c',
+      dependsOn: ['a', 'b'],
+    });
+  });
+
+  it('refuses a link that would close a loop', () => {
+    const a = task({ id: 'a' });
+    const b = task({ id: 'b', dependsOn: ['a'] });
+    // a waits on b, while b already waits on a.
+    expect(planLink(a, b, lookupOf([a, b]))).toBeNull();
+  });
+
+  it('refuses a link across boards, and a duplicate', () => {
+    const a = task({ id: 'a', boardId: 'b1' });
+    const elsewhere = task({ id: 'x', boardId: 'b2' });
+    const c = task({ id: 'c', dependsOn: ['a'] });
+    expect(planLink(c, elsewhere, lookupOf([a, elsewhere, c]))).toBeNull();
+    expect(planLink(c, a, lookupOf([a, c]))).toBeNull();
+  });
+});
+
+describe('planUnlink', () => {
+  it('drops just the named prerequisite', () => {
+    const c = task({ id: 'c', dependsOn: ['a', 'b'] });
+    expect(planUnlink(c, 'a')).toEqual({ taskId: 'c', dependsOn: ['b'] });
+  });
+
+  it('is null when there was no such link, so nothing is written', () => {
+    expect(planUnlink(task({ id: 'c', dependsOn: ['a'] }), 'zzz')).toBeNull();
+  });
+});
+
+describe('planRetarget', () => {
+  it('swaps one prerequisite for another', () => {
+    const a = task({ id: 'a' });
+    const b = task({ id: 'b' });
+    const c = task({ id: 'c', dependsOn: ['a'] });
+    expect(planRetarget(c, 'a', b, lookupOf([a, b, c]))).toEqual({
+      taskId: 'c',
+      dependsOn: ['b'],
+    });
+  });
+
+  it('checks legality against the task with the old link already gone', () => {
+    // c waits on b, b waits on a. Dragging c's edge from b down to a is legal:
+    // a only reaches c *through* b, and that path is the one being removed.
+    const a = task({ id: 'a' });
+    const b = task({ id: 'b', dependsOn: ['a'] });
+    const c = task({ id: 'c', dependsOn: ['b'] });
+    expect(planRetarget(c, 'b', a, lookupOf([a, b, c]))).toEqual({
+      taskId: 'c',
+      dependsOn: ['a'],
+    });
+  });
+
+  it('still refuses a retarget that would close a loop', () => {
+    const a = task({ id: 'a' });
+    const b = task({ id: 'b', dependsOn: ['a'] });
+    const c = task({ id: 'c', dependsOn: ['a'] });
+    // c waiting on b is fine; b waiting on c would be too. But retargeting
+    // b's link onto c while c waits on b is not — that is the loop.
+    const cWaitsOnB = task({ id: 'c', dependsOn: ['b'] });
+    expect(planRetarget(b, 'a', cWaitsOnB, lookupOf([a, b, cWaitsOnB]))).toBeNull();
+    expect(c.id).toBe('c');
+  });
+
+  it('is null when the edge being dragged does not exist', () => {
+    const a = task({ id: 'a' });
+    const b = task({ id: 'b' });
+    const c = task({ id: 'c', dependsOn: ['a'] });
+    expect(planRetarget(c, 'nope', b, lookupOf([a, b, c]))).toBeNull();
+  });
+});
+
+describe('planSplice', () => {
+  it('lands the task inside the edge: from → task → to', () => {
+    const a = task({ id: 'a' });
+    const b = task({ id: 'b', dependsOn: ['a'] });
+    const loose = task({ id: 'loose' });
+
+    expect(planSplice(loose, 'a', b, lookupOf([a, b, loose]))).toEqual([
+      { taskId: 'loose', dependsOn: ['a'] },
+      { taskId: 'b', dependsOn: ['loose'] },
+    ]);
+  });
+
+  it("leaves the dependent's other prerequisites alone", () => {
+    const a = task({ id: 'a' });
+    const other = task({ id: 'other' });
+    const b = task({ id: 'b', dependsOn: ['a', 'other'] });
+    const loose = task({ id: 'loose' });
+
+    expect(planSplice(loose, 'a', b, lookupOf([a, other, b, loose]))).toEqual([
+      { taskId: 'loose', dependsOn: ['a'] },
+      { taskId: 'b', dependsOn: ['other', 'loose'] },
+    ]);
+  });
+
+  it('splices a task that already has prerequisites of its own', () => {
+    const a = task({ id: 'a' });
+    const b = task({ id: 'b', dependsOn: ['a'] });
+    const held = task({ id: 'held' });
+    const mover = task({ id: 'mover', dependsOn: ['held'] });
+
+    expect(planSplice(mover, 'a', b, lookupOf([a, b, held, mover]))).toEqual([
+      { taskId: 'mover', dependsOn: ['held', 'a'] },
+      { taskId: 'b', dependsOn: ['mover'] },
+    ]);
+  });
+
+  it('refuses when the named edge is not actually there', () => {
+    const a = task({ id: 'a' });
+    const b = task({ id: 'b' });
+    const loose = task({ id: 'loose' });
+    expect(planSplice(loose, 'a', b, lookupOf([a, b, loose]))).toBeNull();
+  });
+
+  it('refuses to splice a task into an edge it is already an end of', () => {
+    const a = task({ id: 'a' });
+    const b = task({ id: 'b', dependsOn: ['a'] });
+    expect(planSplice(a, 'a', b, lookupOf([a, b]))).toBeNull();
+    expect(planSplice(b, 'a', b, lookupOf([a, b]))).toBeNull();
+  });
+
+  it('refuses a splice that would close a loop', () => {
+    // b waits on a. `mover` is already downstream of b, so putting it between
+    // a and b would make b wait on something that waits on b.
+    const a = task({ id: 'a' });
+    const b = task({ id: 'b', dependsOn: ['a'] });
+    const mover = task({ id: 'mover', dependsOn: ['b'] });
+    expect(planSplice(mover, 'a', b, lookupOf([a, b, mover]))).toBeNull();
+  });
+
+  it('refuses a splice across boards', () => {
+    const a = task({ id: 'a', boardId: 'b1' });
+    const b = task({ id: 'b', boardId: 'b1', dependsOn: ['a'] });
+    const elsewhere = task({ id: 'x', boardId: 'b2' });
+    expect(planSplice(elsewhere, 'a', b, lookupOf([a, b, elsewhere]))).toBeNull();
   });
 });

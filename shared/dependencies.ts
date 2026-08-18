@@ -196,6 +196,119 @@ export function waitingList(waiting: readonly Task[]): string | null {
 }
 
 /**
+ * One task's `dependsOn` after an edit, or null when the edit is refused.
+ *
+ * Every interactive edge edit on the Blockers page reduces to one or two of
+ * these. They are pure and they are shared with the Worker's validation for the
+ * same reason `canDependOn` is: the drag gesture must be able to grey out a drop
+ * target using exactly the rule that will decide the write, or the user learns
+ * the rule by having a gesture fail.
+ */
+export interface DependencyEdit {
+  taskId: string;
+  dependsOn: string[];
+}
+
+/** `task` gains `prerequisite`. Null when the link is not a legal one. */
+export function planLink(
+  task: Task,
+  prerequisite: Task,
+  tasks: TaskLookup,
+): DependencyEdit | null {
+  if (!canDependOn(task, prerequisite, tasks)) return null;
+  return { taskId: task.id, dependsOn: [...task.dependsOn, prerequisite.id] };
+}
+
+/**
+ * `task` loses `prerequisiteId`.
+ *
+ * Null when there was no such link — not an error, but nothing to write either,
+ * and a mutation that changes nothing is one the user watches roll through the
+ * optimistic path for no reason.
+ */
+export function planUnlink(task: Task, prerequisiteId: string): DependencyEdit | null {
+  if (!task.dependsOn.includes(prerequisiteId)) return null;
+  return { taskId: task.id, dependsOn: task.dependsOn.filter((id) => id !== prerequisiteId) };
+}
+
+/**
+ * An existing edge dragged onto a different prerequisite: `task` stops waiting
+ * on `fromId` and waits on `toPrerequisite` instead.
+ *
+ * The legality check runs against the task **as it will be**, with the old link
+ * already removed. That matters for the one case that would otherwise be
+ * refused wrongly: dragging an edge a short way along a chain can produce a
+ * candidate that is only reachable *through* the link being replaced, and
+ * asking `canDependOn` about the un-edited task would see a cycle that the
+ * completed edit does not contain.
+ */
+export function planRetarget(
+  task: Task,
+  fromId: string,
+  toPrerequisite: Task,
+  tasks: TaskLookup,
+): DependencyEdit | null {
+  const detached = planUnlink(task, fromId);
+  if (!detached) return null;
+  if (toPrerequisite.id === fromId) return null;
+
+  const without: Task = { ...task, dependsOn: detached.dependsOn };
+  return planLink(without, toPrerequisite, withTasks(tasks, without));
+}
+
+/**
+ * A standalone task dropped onto the edge `fromId → toId`, spliced into it.
+ *
+ * The result is `from → task → to`: the task waits on `from`, and `to` waits on
+ * the task in place of `from`. Both halves are returned together because both
+ * halves have to happen — a splice that added the first link and refused the
+ * second would leave the graph in a shape the user did not ask for and did not
+ * see coming.
+ *
+ * Null unless *both* links are legal, checked against the intermediate state so
+ * the second sees the first. `to`'s existing link to `from` is what makes the
+ * second check pass at all: dropping onto the edge is the one gesture where the
+ * new prerequisite is guaranteed already upstream of the dependent.
+ */
+export function planSplice(
+  task: Task,
+  fromId: string,
+  to: Task,
+  tasks: TaskLookup,
+): [DependencyEdit, DependencyEdit] | null {
+  const from = tasks.get(fromId);
+  if (!from || task.id === to.id || task.id === fromId) return null;
+  if (!to.dependsOn.includes(fromId)) return null;
+
+  const linked = planLink(task, from, tasks);
+  if (!linked) return null;
+
+  // The dependent's edit is planned against the task that *already carries* its
+  // new link, so the cycle walk sees the graph the write will produce.
+  const spliced: Task = { ...task, dependsOn: linked.dependsOn };
+  const detached = planUnlink(to, fromId);
+  if (!detached) return null;
+
+  const rebound: Task = { ...to, dependsOn: detached.dependsOn };
+  const relinked = planLink(rebound, spliced, withTasks(tasks, spliced, rebound));
+  if (!relinked) return null;
+
+  return [linked, relinked];
+}
+
+/**
+ * `tasks` with some entries replaced — for planning against un-written edits.
+ *
+ * The cycle walk reads the graph through this lookup, so a plan checked against
+ * the *stored* tasks would be answering a question about a graph that is about
+ * to stop existing.
+ */
+function withTasks(tasks: TaskLookup, ...edited: Task[]): TaskLookup {
+  const overlay = new Map(edited.map((task) => [task.id, task]));
+  return { get: (id) => overlay.get(id) ?? tasks.get(id) };
+}
+
+/**
  * `dependsOn` cleaned up: de-duplicated, self-links dropped, order preserved.
  *
  * Used at both boundaries — the composer before it sends, and the Worker before

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Board, Context, Task } from './types';
-import { UP_NEXT_LIMIT, dueMoment, effectiveDueMoment, upNext } from './upnext';
+import {
+  UP_NEXT_LIMIT,
+  UP_NEXT_MAX_ROWS,
+  dueMoment,
+  effectiveDueMoment,
+  overdueTasks,
+  upNext,
+} from './upnext';
 
 /** Local-time epoch ms, matching how `dueMoment` reads a date and time. */
 function local(date: string, time: string): number {
@@ -449,5 +456,138 @@ describe('upNext ties', () => {
     const before = ids(tasks);
     run(tasks);
     expect(ids(tasks)).toEqual(before);
+  });
+});
+
+/**
+ * The Overdue Audit's list.
+ *
+ * Its contract is narrower than it looks: not "everything with a date in the
+ * past", but "everything the strip would rank in tier 1". Those differ exactly
+ * where triage has already happened, and that difference is the whole feature —
+ * a task you marked blocked yesterday must not be offered again today.
+ */
+describe('overdueTasks', () => {
+  const personal = board({ id: 'op', context: 'personal' });
+  const work = board({ id: 'ow', context: 'work' });
+  const archived = board({ id: 'oa', context: 'personal', archivedAt: 1000 });
+  const boards = [personal, work, archived];
+
+  function run(tasks: Task[], context: Context = 'personal'): Task[] {
+    return overdueTasks(boards, tasks, context, NOW);
+  }
+
+  it('is empty when nothing is late', () => {
+    const soon = task({ boardId: 'op', dueDate: '2026-08-04' });
+    expect(run([soon])).toEqual([]);
+  });
+
+  it('lists overdue tasks most overdue first', () => {
+    const yesterday = task({ id: 'yesterday', boardId: 'op', dueDate: '2026-08-02' });
+    const lastWeek = task({ id: 'lastWeek', boardId: 'op', dueDate: '2026-07-27' });
+    const thisMorning = task({
+      id: 'thisMorning',
+      boardId: 'op',
+      dueDate: '2026-08-03',
+      dueTime: '08:00',
+    });
+    expect(ids(run([yesterday, thisMorning, lastWeek]))).toEqual([
+      'lastWeek',
+      'yesterday',
+      'thisMorning',
+    ]);
+  });
+
+  it('treats an undated-time task as due at the end of its day', () => {
+    // Due today with no time is due 23:59, which at 09:00 is not yet overdue.
+    const today = task({ id: 'today', boardId: 'op', dueDate: '2026-08-03' });
+    expect(run([today])).toEqual([]);
+  });
+
+  it('excludes what has already been triaged — blocked and gated', () => {
+    const late = task({ id: 'late', boardId: 'op', dueDate: '2026-08-01' });
+    const blocked = task({
+      id: 'blocked',
+      boardId: 'op',
+      dueDate: '2026-08-01',
+      blocked: true,
+    });
+    const prerequisite = task({ id: 'prerequisite', boardId: 'op' });
+    const gated = task({
+      id: 'gated',
+      boardId: 'op',
+      dueDate: '2026-08-01',
+      dependsOn: ['prerequisite'],
+    });
+
+    expect(ids(run([late, blocked, prerequisite, gated]))).toEqual(['late']);
+  });
+
+  it('excludes completed tasks, other contexts, and archived boards', () => {
+    const mine = task({ id: 'mine', boardId: 'op', dueDate: '2026-08-01' });
+    const done = task({
+      id: 'done',
+      boardId: 'op',
+      dueDate: '2026-08-01',
+      completedAt: NOW,
+    });
+    const theirs = task({ id: 'theirs', boardId: 'ow', dueDate: '2026-08-01' });
+    const shelved = task({ id: 'shelved', boardId: 'oa', dueDate: '2026-08-01' });
+
+    expect(ids(run([mine, done, theirs, shelved]))).toEqual(['mine']);
+    expect(ids(run([mine, theirs], 'work'))).toEqual(['theirs']);
+  });
+
+  it('is uncapped, unlike the strip', () => {
+    const many = Array.from({ length: UP_NEXT_LIMIT * 3, }, (_, index) =>
+      task({ id: `late${index}`, boardId: 'op', dueDate: '2026-08-01' }),
+    );
+    expect(run(many)).toHaveLength(UP_NEXT_LIMIT * 3);
+    expect(upNext(boards, many, 'personal', NOW)).toHaveLength(UP_NEXT_LIMIT);
+  });
+
+  it('agrees with the strip: everything it lists is what upNext ranks first', () => {
+    const late = task({ id: 'late', boardId: 'op', dueDate: '2026-08-01' });
+    const later = task({ id: 'later', boardId: 'op', dueDate: '2026-08-02' });
+    const upcoming = task({ id: 'upcoming', boardId: 'op', dueDate: '2026-08-09' });
+
+    const audit = ids(run([upcoming, later, late]));
+    const strip = ids(upNext(boards, [upcoming, later, late], 'personal', NOW));
+    expect(audit).toEqual(['late', 'later']);
+    expect(strip.slice(0, audit.length)).toEqual(audit);
+  });
+});
+
+/** The row cap the strip may be grown to (§6.7's five, up to three times). */
+describe('upNext limit', () => {
+  const personal = board({ id: 'lp', context: 'personal' });
+
+  it('defaults to five and honours a wider limit', () => {
+    const tasks = Array.from({ length: 20 }, (_, index) =>
+      task({ id: `t${index}`, boardId: 'lp', dueDate: '2026-08-04' }),
+    );
+    expect(upNext([personal], tasks, 'personal', NOW)).toHaveLength(UP_NEXT_LIMIT);
+    expect(
+      upNext([personal], tasks, 'personal', NOW, UP_NEXT_LIMIT * UP_NEXT_MAX_ROWS),
+    ).toHaveLength(UP_NEXT_LIMIT * UP_NEXT_MAX_ROWS);
+  });
+
+  it('grows the strip by revealing what was already next, in order', () => {
+    const tasks = Array.from({ length: 12 }, (_, index) =>
+      task({ id: `g${index}`, boardId: 'lp', dueDate: '2026-08-04' }),
+    );
+    const oneRow = ids(upNext([personal], tasks, 'personal', NOW));
+    const three = ids(upNext([personal], tasks, 'personal', NOW, UP_NEXT_LIMIT * 3));
+    // The first row is untouched by growing — a wider strip must never reorder
+    // what is already on screen.
+    expect(three.slice(0, UP_NEXT_LIMIT)).toEqual(oneRow);
+  });
+
+  it('caps at what actually qualifies rather than padding', () => {
+    const tasks = [
+      task({ id: 'a', boardId: 'lp', dueDate: '2026-08-04' }),
+      task({ id: 'b', boardId: 'lp', dueDate: '2026-08-05' }),
+    ];
+    expect(upNext([personal], tasks, 'personal', NOW, 15)).toHaveLength(2);
   });
 });

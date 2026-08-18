@@ -19,11 +19,20 @@ import {
   positionBetween,
   reorderBoardSpec,
   reorderTaskSpec,
+  updateTaskSpec,
   useStore,
   type NewTask,
 } from './store';
 import { toast } from './toasts';
-import { blockedBy, lookupOf } from '../../shared/dependencies';
+import {
+  blockedBy,
+  lookupOf,
+  planLink,
+  planRetarget,
+  planSplice,
+  planUnlink,
+  type DependencyEdit,
+} from '../../shared/dependencies';
 import type { Board, BoardAccent, Context, Task } from '../../shared/types';
 import { createBoardSpec } from './store';
 
@@ -133,6 +142,109 @@ export function reorderTask(task: Task, before: Task | null, after: Task | null)
 /** The same, for a board card on the context home (§6.6). */
 export function reorderBoard(board: Board, before: Board | null, after: Board | null): void {
   void useStore.getState().mutate(reorderBoardSpec(board, positionFor(before, after)));
+}
+
+/**
+ * The dependency edits the Blockers page makes by drag.
+ *
+ * Each one plans against the live store with the shared rules, refuses in a
+ * toast when the plan comes back null, and writes through `mutate()` like every
+ * other change. Nothing here re-implements a rule: `shared/dependencies.ts`
+ * decides what is legal, the Worker re-checks it, and this is the wiring
+ * between the gesture and the write.
+ */
+function applyEdits(edits: DependencyEdit[]): void {
+  const store = useStore.getState();
+  for (const edit of edits) {
+    const task = store.tasks[edit.taskId];
+    if (task) void store.mutate(updateTaskSpec(task, { dependsOn: edit.dependsOn }));
+  }
+}
+
+/** `task` waits on `prerequisiteId`. */
+export function linkDependency(task: Task, prerequisiteId: string): void {
+  const store = useStore.getState();
+  const prerequisite = store.tasks[prerequisiteId];
+  if (!prerequisite) return;
+
+  const edit = planLink(task, prerequisite, lookupOf(store.tasks));
+  if (!edit) {
+    toast.info(refusal(task, prerequisite));
+    return;
+  }
+  applyEdits([edit]);
+}
+
+/** `task` stops waiting on `prerequisiteId`. Silent when there was no link. */
+export function unlinkDependency(task: Task, prerequisiteId: string): void {
+  const edit = planUnlink(task, prerequisiteId);
+  if (edit) applyEdits([edit]);
+}
+
+/** An existing edge moved onto a different prerequisite. */
+export function retargetDependency(task: Task, fromId: string, toPrerequisiteId: string): void {
+  const store = useStore.getState();
+  const toPrerequisite = store.tasks[toPrerequisiteId];
+  if (!toPrerequisite) return;
+
+  const edit = planRetarget(task, fromId, toPrerequisite, lookupOf(store.tasks));
+  if (!edit) {
+    toast.info(refusal(task, toPrerequisite));
+    return;
+  }
+  applyEdits([edit]);
+}
+
+/**
+ * `task` spliced into the edge `fromId → toId`, becoming `from → task → to`.
+ *
+ * Two writes, because it is two tasks that change. They go through `mutate()`
+ * separately and so can in principle fail separately — the honest cost of a
+ * store whose unit of work is one task. A half-applied splice leaves the task
+ * waiting on `from` with `to` unchanged, which is a legal graph and a visible
+ * one, rather than anything corrupt.
+ */
+export function spliceIntoEdge(task: Task, fromId: string, toId: string): void {
+  const store = useStore.getState();
+  const to = store.tasks[toId];
+  if (!to) return;
+
+  const edits = planSplice(task, fromId, to, lookupOf(store.tasks));
+  if (!edits) {
+    toast.info(`"${task.name}" cannot go here — it would create a loop.`);
+    return;
+  }
+  applyEdits(edits);
+}
+
+/**
+ * Why a link was refused, in the terms the user was working in.
+ *
+ * `canDependOn`'s four refusals collapse to two the user can act on: the same
+ * board rule, and everything else that would make a loop. A duplicate link and
+ * a self-link are both already impossible to express by drag, so neither gets a
+ * sentence it would never show.
+ */
+function refusal(task: Task, prerequisite: Task): string {
+  return prerequisite.boardId !== task.boardId
+    ? 'Tasks can only wait on tasks from the same board.'
+    : `"${task.name}" cannot wait on "${prerequisite.name}" — it would create a loop.`;
+}
+
+/** Mark a task blocked, or release it. The Overdue Audit's middle action. */
+export function setBlocked(task: Task, blocked: boolean): void {
+  const store = useStore.getState();
+  void store.mutate(updateTaskSpec(task, { blocked }));
+}
+
+/** Move a task's due date. The Overdue Audit's first action. */
+export function setDueDate(task: Task, dueDate: string | null): void {
+  const store = useStore.getState();
+  // Clearing the date clears the time with it: a time without a date is not a
+  // moment, and §6.4 only offers one once the other is set.
+  void store.mutate(
+    updateTaskSpec(task, dueDate === null ? { dueDate: null, dueTime: null } : { dueDate }),
+  );
 }
 
 /** Every task of a board, active and completed — what a delete destroys. */

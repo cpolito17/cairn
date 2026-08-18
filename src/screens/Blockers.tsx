@@ -15,14 +15,22 @@
  * surface uses, and the graph redraws from the store.
  */
 
-import { CaretDown, Check, Clock, Flag, Plus } from '@phosphor-icons/react';
+import { CaretDown, Check, Clock, DotsSixVertical, Flag, Plus } from '@phosphor-icons/react';
 import {
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
+import {
+  ConnectLine,
+  useConnectDrag,
+  type Anchor,
+  type ConnectHandlers,
+  type ConnectState,
+} from '../components/blockers/connect';
 import {
   layoutBlockers,
   type BlockerLayout,
@@ -82,6 +90,20 @@ const ADD_HOTSPOT_WIDTH = 56;
 const ADD_STUB = 36;
 const ADD_TRAIL = ADD_STUB + ADD_BUTTON;
 
+/**
+ * How wide an edge is to *press*, as opposed to how wide it is to look at.
+ *
+ * The drawn stroke is 1.5px and nothing can be reliably grabbed at 1.5px, least
+ * of all with a finger. 24 is the compromise: comfortably wider than a
+ * fingertip's accuracy along a curve, and narrow enough that two edges running
+ * a `ROW_GAP` apart still have their own targets.
+ */
+const EDGE_GRAB = 24;
+
+/** The connect dot on a node's right edge, and its tap target around it. */
+const HANDLE_DOT = 12;
+const HANDLE_TARGET = 44;
+
 interface BoardModel {
   board: Board;
   tasks: Task[];
@@ -94,6 +116,8 @@ interface PositionedNode {
   node: BlockerNode;
   x: number;
   y: number;
+  /** Measured, so a wrapped name still anchors its edges at its true middle. */
+  height: number;
 }
 
 interface PositionedEdge {
@@ -154,8 +178,13 @@ export function Blockers() {
   const boards = useBoards(context);
   const [editing, setEditing] = useState<Task | null>(null);
   // Create mode: the board the new task lands on, and the task it starts out
-  // waiting on — which is the whole content of the gesture that opened it.
-  const [creating, setCreating] = useState<{ boardId: string; dependsOn: string } | null>(null);
+  // waiting on — which is the whole content of the gesture that opened it. The
+  // Standalone well's own "+" passes null, because a task created there is
+  // deliberately unlinked; that is what "standalone" means.
+  const [creating, setCreating] = useState<{
+    boardId: string;
+    dependsOn: string | null;
+  } | null>(null);
 
   const models = useMemo(() => {
     const allTasks = Object.values(taskRecord);
@@ -197,9 +226,15 @@ export function Blockers() {
                 model={model}
                 onOpen={setEditing}
                 onAdd={(dependsOn) => setCreating({ boardId: model.board.id, dependsOn })}
+                onCreate={() => setCreating({ boardId: model.board.id, dependsOn: null })}
               />
             ) : (
-              <StandaloneBoard key={model.board.id} model={model} onOpen={setEditing} />
+              <StandaloneBoard
+                key={model.board.id}
+                model={model}
+                onOpen={setEditing}
+                onCreate={() => setCreating({ boardId: model.board.id, dependsOn: null })}
+              />
             ),
           )}
         </div>
@@ -224,7 +259,7 @@ export function Blockers() {
           open
           onClose={() => setCreating(null)}
           boardId={creating.boardId}
-          initialDependsOn={creating.dependsOn}
+          {...(creating.dependsOn === null ? {} : { initialDependsOn: creating.dependsOn })}
           context={context}
         />
       )}
@@ -236,10 +271,12 @@ function DependencyBoard({
   model,
   onOpen,
   onAdd,
+  onCreate,
 }: {
   model: BoardModel;
   onOpen(task: Task): void;
   onAdd(prerequisiteId: string): void;
+  onCreate(): void;
 }) {
   const lookup = useMemo(() => lookupOf(model.tasks), [model.tasks]);
   const byId = useMemo(
@@ -247,6 +284,8 @@ function DependencyBoard({
     [model.tasks],
   );
   const scroll = useRef<HTMLDivElement>(null);
+  const layer = useRef<HTMLDivElement>(null);
+  const connect = useConnectDrag(layer, scroll);
   const [now] = useState(() => Date.now());
 
   // Nodes render at NODE_HEIGHT first — a reasonable guess, and the one every
@@ -277,6 +316,25 @@ function DependencyBoard({
 
   useAutoScrollOnMount(scroll, geometry.leftmostIncompleteX);
 
+  // Where a live drag's line is pinned. A connect leaves the source's right
+  // edge; a retarget hangs off the dependent's left edge, because that is the
+  // end the gesture keeps. A splice has no anchor at all — it carries a chip
+  // instead, since what is moving is a task and not a line.
+  const anchor = useMemo((): Anchor | null => {
+    const state = connect.state;
+    if (!state || state.intent.kind === 'splice') return null;
+    const id =
+      state.intent.kind === 'connect' ? state.intent.sourceId : state.intent.toId;
+    const placed = geometry.nodes.find(({ node }) => node.task.id === id);
+    if (!placed) return null;
+    return {
+      x: state.intent.kind === 'connect' ? placed.x + NODE_WIDTH : placed.x,
+      y: placed.y + placed.height / 2,
+    };
+  }, [connect.state, geometry.nodes]);
+
+  const dragging = connect.state !== null;
+
   return (
     <section
       className="blockers-bleed overflow-hidden border-y border-hairline"
@@ -298,24 +356,42 @@ function DependencyBoard({
 
       <div ref={scroll} className="blockers-board-scroll">
         <div className="flex min-w-max items-stretch" style={{ minHeight: geometry.height }}>
-          {/* Sticky only while there is something to pin — an empty 220px
-              column has nothing left to say once the title moved above. */}
-          {model.layout.standalone.length > 0 && (
-            <aside className="blockers-sidebar z-20 shrink-0 p-4">
-              <div
-                className="overflow-y-auto rounded-control bg-surface-2 p-1"
-                style={{ maxHeight: '240px', overscrollBehavior: 'contain' }}
-              >
-                <p className="px-2 pb-1 pt-2 text-meta text-text-tertiary">Standalone</p>
-                {model.layout.standalone.map((task) => (
-                  <CompactTask key={task.id} task={task} onOpen={onOpen} />
-                ))}
+          {/* Always present now: the well holds the board's unlinked tasks and
+              its own "+", so a board with a tree and nothing loose still has
+              somewhere to create one. Tasks here are drag sources — hold one
+              and drop it on a line to splice it in. */}
+          <aside className="blockers-sidebar z-20 shrink-0 p-4">
+            <div
+              className="overflow-y-auto rounded-control bg-surface-2 p-1"
+              style={{ maxHeight: '240px', overscrollBehavior: 'contain' }}
+            >
+              <div className="flex items-center gap-1 px-2 pb-1 pt-2">
+                <p className="min-w-0 flex-1 text-meta text-text-tertiary">Standalone</p>
+                <AddStandalone onClick={onCreate} />
               </div>
-            </aside>
-          )}
+              {model.layout.standalone.length === 0 ? (
+                <p className="px-2 pb-2 text-meta text-text-tertiary">Nothing loose.</p>
+              ) : (
+                model.layout.standalone.map((task) => (
+                  <CompactTask
+                    key={task.id}
+                    task={task}
+                    onOpen={onOpen}
+                    draggable={connect}
+                  />
+                ))
+              )}
+            </div>
+          </aside>
 
           <div
-            className="relative shrink-0"
+            ref={layer}
+            // `blockers-dragging` suppresses text selection and pins the cursor
+            // to `grabbing` for the whole layer. Without it, dragging a line
+            // across a node's name starts a text selection under the gesture —
+            // the pointer is captured so the drag still works, but it leaves a
+            // trail of highlighted words behind it.
+            className={`relative shrink-0${dragging ? ' blockers-dragging' : ''}`}
             style={{ width: geometry.width, height: geometry.height }}
           >
             <svg
@@ -327,19 +403,20 @@ function DependencyBoard({
               {geometry.edges.map((edge) => {
                 const prerequisite = byId.get(edge.parentId);
                 const released = prerequisite?.completedAt !== null;
+                const lit = isEdgeTarget(connect.state, edge);
                 return (
                   <path
                     key={edge.id}
-                    data-edge-from={edge.parentId}
-                    data-edge-to={edge.childId}
                     d={edge.path}
                     fill="none"
                     stroke={
-                      released
-                        ? 'color-mix(in srgb, var(--positive) 60%, transparent)'
-                        : 'var(--text-tertiary)'
+                      lit
+                        ? 'var(--accent)'
+                        : released
+                          ? 'color-mix(in srgb, var(--positive) 60%, transparent)'
+                          : 'var(--text-tertiary)'
                     }
-                    strokeWidth="1.5"
+                    strokeWidth={lit ? 3 : 1.5}
                     vectorEffect="non-scaling-stroke"
                     style={{ transition: 'stroke 200ms var(--ease-out)' }}
                   />
@@ -359,11 +436,56 @@ function DependencyBoard({
               ))}
             </svg>
 
+            {/* The grab layer. One fat transparent stroke per edge, carrying the
+                data attributes `connect.tsx` hit-tests against — the drawn edge
+                above is 1.5px and nobody can reliably press 1.5px.
+
+                It sits *below* the add points in DOM order on purpose: where the
+                plus's hover region crosses the line it belongs to, the plus
+                wins, so the affordance that was already there keeps its whole
+                target and this one gives up a sliver. Everywhere else along the
+                edge — which is most of it — the grab is live. */}
+            <svg
+              aria-hidden="true"
+              className="absolute inset-0 block"
+              width={geometry.width}
+              height={geometry.height}
+              style={{ pointerEvents: 'none' }}
+            >
+              {geometry.edges.map((edge) => (
+                <path
+                  key={edge.id}
+                  data-edge-from={edge.parentId}
+                  data-edge-to={edge.childId}
+                  d={edge.path}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth={EDGE_GRAB}
+                  strokeLinecap="round"
+                  onPointerDown={(event) =>
+                    connect.begin(event, {
+                      kind: 'retarget',
+                      fromId: edge.parentId,
+                      toId: edge.childId,
+                    })
+                  }
+                  style={{
+                    pointerEvents: 'stroke',
+                    cursor: 'grab',
+                    // The row scrolls horizontally underneath; this says the
+                    // stroke is not part of that, so a touch on it drags the
+                    // edge instead of panning the board.
+                    touchAction: 'none',
+                  }}
+                />
+              ))}
+            </svg>
+
             {geometry.addPoints.map((point) => (
               <AddAfter key={point.id} point={point} onAdd={onAdd} />
             ))}
 
-            {geometry.nodes.map(({ node, x, y }) => (
+            {geometry.nodes.map(({ node, x, y, height }) => (
               <div
                 key={node.task.id}
                 ref={(el) => {
@@ -371,7 +493,12 @@ function DependencyBoard({
                   else nodeRefs.current.delete(node.task.id);
                 }}
                 data-blocker-node={node.task.id}
-                className="absolute left-0 top-0"
+                // The hotspot class is what reveals the connect dot: the dot is
+                // hidden at rest on a fine pointer and hovering *the node* is
+                // how it is found. Hovering the dot itself keeps it (see
+                // `.blocker-connect-handle` in index.css), so the pointer never
+                // crosses dead space on its way out to the overhang.
+                className="blocker-add-hotspot absolute left-0 top-0"
                 style={{
                   width: NODE_WIDTH,
                   // A floor, not a fixed height — §7's line-clamp used to cut
@@ -389,10 +516,40 @@ function DependencyBoard({
                     lookup={lookup}
                     now={now}
                     onOpen={onOpen}
+                    drop={dropStateFor(connect.state, node.task.id)}
                   />
                 </TaskDetails>
+
+                <ConnectHandle
+                  task={node.task}
+                  centreY={height / 2}
+                  onBegin={(event) =>
+                    connect.begin(event, { kind: 'connect', sourceId: node.task.id })
+                  }
+                />
               </div>
             ))}
+
+            {/* The live drag, above everything and inert. */}
+            {connect.state && (
+              <svg
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-30 block"
+                width={geometry.width}
+                height={geometry.height}
+              >
+                <ConnectLine anchor={anchor} state={connect.state} />
+              </svg>
+            )}
+
+            {connect.state?.intent.kind === 'splice' && (
+              <SpliceChip
+                name={byId.get(connect.state.intent.taskId)?.name ?? ''}
+                x={connect.state.x}
+                y={connect.state.y}
+                valid={connect.state.valid}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -472,16 +629,157 @@ function AddAfter({ point, onAdd }: { point: AddPoint; onAdd(prerequisiteId: str
   );
 }
 
+/**
+ * The connect dot: press it and drag to another node to make that node wait on
+ * this one.
+ *
+ * It sits on the node's right edge, which is the edge every dependency line
+ * already leaves from — so the gesture starts where the result will be drawn.
+ * Hidden until the node is hovered or keyboard-focused on a fine pointer, and
+ * quietly present on touch, exactly as the "add after" plus is: two affordances
+ * on the same page that appeared by different rules would read as two pages.
+ *
+ * Its 44px target overlaps the left sliver of the first add point's hover
+ * region. The dot wins there — it is the smaller, more deliberate control, and
+ * the plus keeps its circle and the rest of its region.
+ */
+function ConnectHandle({
+  task,
+  centreY,
+  onBegin,
+}: {
+  task: Task;
+  centreY: number;
+  onBegin(event: ReactPointerEvent): void;
+}) {
+  return (
+    <div
+      className="blocker-connect-handle absolute"
+      style={{
+        left: NODE_WIDTH - HANDLE_TARGET / 2,
+        top: centreY - HANDLE_TARGET / 2,
+        width: HANDLE_TARGET,
+        height: HANDLE_TARGET,
+      }}
+    >
+      <button
+        type="button"
+        // Not `pressable`: a press here is the first frame of a drag, and a
+        // 0.97 scale under the finger would move the thing being aimed with.
+        className="blocker-add flex h-full w-full items-center justify-center"
+        aria-label={`Draw a dependency from "${task.name}"`}
+        onPointerDown={onBegin}
+        style={{ cursor: 'grab', touchAction: 'none' }}
+      >
+        <span
+          aria-hidden="true"
+          className="block rounded-pill"
+          style={{
+            width: HANDLE_DOT,
+            height: HANDLE_DOT,
+            backgroundColor: 'var(--surface)',
+            border: '2px solid var(--accent)',
+          }}
+        />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * What a live drag means for one node: nothing, a legal landing, or a refusal.
+ *
+ * Refusals are drawn as well as approvals, deliberately. A node that simply
+ * fails to light up is indistinguishable from one the pointer has not reached,
+ * and the user would keep trying. Dimming it says "not this one" while the
+ * gesture is still in the air, which is the only moment the answer is useful.
+ */
+type DropState = 'none' | 'valid' | 'invalid';
+
+function dropStateFor(state: ConnectState | null, taskId: string): DropState {
+  if (!state || state.intent.kind === 'splice') return 'none';
+  if (state.target?.kind !== 'node' || state.target.id !== taskId) return 'none';
+  return state.valid ? 'valid' : 'invalid';
+}
+
+/** True while a splice drag is hovering this particular edge and would take. */
+function isEdgeTarget(state: ConnectState | null, edge: PositionedEdge): boolean {
+  return (
+    state !== null &&
+    state.valid &&
+    state.target?.kind === 'edge' &&
+    state.target.fromId === edge.parentId &&
+    state.target.toId === edge.childId
+  );
+}
+
+/**
+ * The task riding under the pointer during a splice.
+ *
+ * A rubber line would be the wrong picture here: nothing is being connected
+ * end-to-end, a whole task is being carried onto a line. So it is a chip with
+ * the name in it — the same thing the user pressed, still legible, offset from
+ * the pointer so the finger is not covering the answer.
+ */
+function SpliceChip({
+  name,
+  x,
+  y,
+  valid,
+}: {
+  name: string;
+  x: number;
+  y: number;
+  valid: boolean;
+}) {
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute z-30 max-w-48 truncate rounded-chip px-2 py-1
+                 text-meta"
+      style={{
+        left: 0,
+        top: 0,
+        transform: `translate3d(${x + 14}px, ${y + 14}px, 0)`,
+        backgroundColor: 'var(--surface)',
+        border: `1.5px solid ${valid ? 'var(--accent)' : 'var(--hairline)'}`,
+        boxShadow: 'var(--shadow-md)',
+        color: valid ? 'var(--text)' : 'var(--text-secondary)',
+      }}
+    >
+      {name}
+    </div>
+  );
+}
+
+/** The Standalone well's "+". Creates an unlinked task on this board. */
+function AddStandalone({ onClick }: { onClick(): void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="New task on this board"
+      className="pressable hoverable -my-2 flex shrink-0 items-center justify-center rounded-chip
+                 text-text-secondary"
+      style={{ width: 'var(--tap-target)', height: 'var(--tap-target)' }}
+    >
+      <Plus size={16} />
+    </button>
+  );
+}
+
 function BlockerNodeCard({
   node,
   lookup,
   now,
   onOpen,
+  drop = 'none',
 }: {
   node: BlockerNode;
   lookup: TaskLookup;
   now: number;
   onOpen(task: Task): void;
+  drop?: DropState;
 }) {
   const task = node.task;
   const done = task.completedAt !== null;
@@ -495,14 +793,25 @@ function BlockerNodeCard({
       className="blocker-node theme-eased flex h-full items-stretch rounded-control bg-surface"
       data-state={done ? 'completed' : gated ? 'gated' : 'open'}
       style={{
-        border: done
-          ? '1.5px solid transparent'
-          : gated
-            ? '1px solid var(--hairline)'
-            : '1.5px solid var(--accent)',
-        boxShadow: done || gated ? 'none' : 'var(--shadow-sm)',
+        // A live drop target overrides the state ring while the drag is in the
+        // air, and gives it back the moment the pointer leaves. It is the same
+        // 1.5px ring, recoloured — a node that changed size or weight under the
+        // pointer would move the target the user is aiming at.
+        border:
+          drop === 'valid'
+            ? '1.5px solid var(--accent)'
+            : drop === 'invalid'
+              ? '1.5px solid var(--hairline)'
+              : done
+                ? '1.5px solid transparent'
+                : gated
+                  ? '1px solid var(--hairline)'
+                  : '1.5px solid var(--accent)',
+        boxShadow:
+          drop === 'valid' ? 'var(--shadow-md)' : done || gated ? 'none' : 'var(--shadow-sm)',
+        opacity: drop === 'invalid' ? 0.5 : 1,
         transition:
-          'background-color 200ms var(--ease-out), border-color 200ms var(--ease-out), color 200ms var(--ease-out), box-shadow 200ms var(--ease-out)',
+          'background-color 200ms var(--ease-out), border-color 200ms var(--ease-out), color 200ms var(--ease-out), box-shadow 200ms var(--ease-out), opacity 160ms var(--ease-out)',
       }}
     >
       <TaskCheckbox task={task} waitingOn={waitingSummary(waiting)} />
@@ -553,7 +862,15 @@ function BlockerNodeCard({
   );
 }
 
-function StandaloneBoard({ model, onOpen }: { model: BoardModel; onOpen(task: Task): void }) {
+function StandaloneBoard({
+  model,
+  onOpen,
+  onCreate,
+}: {
+  model: BoardModel;
+  onOpen(task: Task): void;
+  onCreate(): void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const regionId = `standalone-board-${model.board.id}`;
   const count = model.tasks.length;
@@ -597,8 +914,15 @@ function StandaloneBoard({ model, onOpen }: { model: BoardModel; onOpen(task: Ta
             className="overflow-y-auto rounded-control bg-surface-2 p-1"
             style={{ maxHeight: '240px', overscrollBehavior: 'contain' }}
           >
+            <div className="flex items-center gap-1 px-2 pb-1 pt-2">
+              <p className="min-w-0 flex-1 text-meta text-text-tertiary">Standalone</p>
+              <AddStandalone onClick={onCreate} />
+            </div>
+            {/* No drag grips here. This board has no dependency lines at all,
+                so there is nothing on screen to splice a task into — offering
+                the gesture would be offering a drop with no target. */}
             {model.tasks.length === 0 ? (
-              <p className="px-3 py-3 text-meta text-text-secondary">No tasks on this board.</p>
+              <p className="px-2 pb-2 text-meta text-text-secondary">No tasks on this board.</p>
             ) : (
               model.tasks.map((task) => (
                 <CompactTask key={task.id} task={task} onOpen={onOpen} />
@@ -611,7 +935,28 @@ function StandaloneBoard({ model, onOpen }: { model: BoardModel; onOpen(task: Ta
   );
 }
 
-function CompactTask({ task, onOpen }: { task: Task; onOpen(task: Task): void }) {
+/**
+ * A row in the Standalone well.
+ *
+ * With `draggable`, it grows a grip on its right edge that is the splice drag's
+ * source: hold it and drop the task onto a dependency line to land it inside
+ * that line. The grip is a separate target rather than the whole row because
+ * the row's own job is to open the composer, and a row that is both a button
+ * and a drag handle makes every press a guess about which one it was.
+ *
+ * The hold is a touch rule — the well scrolls vertically, so a press that
+ * became a drag immediately would make it impossible to scroll. A mouse gets
+ * the ordinary 6px slop (`connect.tsx`).
+ */
+function CompactTask({
+  task,
+  onOpen,
+  draggable,
+}: {
+  task: Task;
+  onOpen(task: Task): void;
+  draggable?: ConnectHandlers;
+}) {
   const done = task.completedAt !== null;
   return (
     <div className="flex min-w-0 items-stretch rounded-control">
@@ -632,6 +977,30 @@ function CompactTask({ task, onOpen }: { task: Task; onOpen(task: Task): void })
       >
         {task.name}
       </button>
+
+      {draggable && (
+        <span className="blocker-add-hotspot flex shrink-0 items-center">
+          <button
+            type="button"
+            aria-label={`Drag "${task.name}" onto a dependency line`}
+            className="blocker-add flex items-center justify-center text-text-tertiary"
+            style={{ width: '28px', alignSelf: 'stretch', cursor: 'grab', touchAction: 'none' }}
+            onPointerDown={(event) =>
+              draggable.beginOnHold(event, { kind: 'splice', taskId: task.id })
+            }
+            onClick={(event) => {
+              // The click that follows a drag's release is that release, not a
+              // tap on the grip. Swallow it, and let an ordinary press through.
+              if (draggable.dragged.current) {
+                event.preventDefault();
+                draggable.dragged.current = false;
+              }
+            }}
+          >
+            <DotsSixVertical size={16} />
+          </button>
+        </span>
+      )}
     </div>
   );
 }
@@ -807,7 +1176,12 @@ function geometryOf(layout: BlockerLayout, heights: Map<string, number> | null):
     const columnX = (depth: number): number => TREE_PADDING_X + depth * columnStride;
 
     for (const node of graph.nodes) {
-      nodes.push({ node, x: columnX(node.depth), y: pixelTop(node.task.id) });
+      nodes.push({
+        node,
+        x: columnX(node.depth),
+        y: pixelTop(node.task.id),
+        height: heightOf(node.task.id),
+      });
     }
 
     // Edges, one per prerequisite, routed through their bends. Several arriving

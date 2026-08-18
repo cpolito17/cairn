@@ -385,6 +385,16 @@
       transform: none;
     }
 
+    /* The connect dot is revealed by hovering its *node*, but it hangs 22px
+       past the node's right edge — so once the pointer leaves the card for the
+       overhang, the node's own `:hover` is gone. This keeps it lit while the
+       pointer is on the dot itself, which is the whole of that last 22px. */
+    .blocker-connect-handle:hover .blocker-add,
+    .blocker-connect-handle:has(:focus-visible) .blocker-add {
+      opacity: 1;
+      transform: none;
+    }
+
     /* The stub at the end of a chain stays visible without a hover.
 
        An edge point can wait to be discovered: the line it sits on is drawn
@@ -408,6 +418,23 @@
     .blockers-sidebar {
       width: 168px;
     }
+  }
+
+  /* While a dependency line is being dragged.
+
+     Not gated behind a hover query: a touch drag selects text just as readily
+     as a mouse one, and on iOS a selection that starts mid-drag also raises the
+     callout bar over the graph. Both cursor and selection are inherited, so one
+     class on the layer covers every node and edge inside it. `grabbing` is set
+     with `!important` because the handles and the edge strokes each declare
+     `grab` inline, and the whole point is that the cursor stops saying "you
+     could pick this up" once something has been picked up. */
+  .blockers-dragging,
+  .blockers-dragging * {
+    cursor: grabbing !important;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
   }
 
   /* Up Next bleeds off the right edge to signal scrollability (§6.7); the

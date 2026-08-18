@@ -20,6 +20,11 @@
  * child. Rendering to `document.body` at a measured rect is what makes one
  * component work in both places.
  *
+ * **Centred over its trigger**, horizontally, and clamped to the viewport
+ * rather than flipped. One rule for every surface that uses this — a board row,
+ * an Up Next card, a Blockers node — because a card that centres in one place
+ * and left-aligns in another reads as two different components.
+ *
  * **Inert.** `pointer-events: none`, so it can never swallow the click meant
  * for the row underneath, and there is nothing inside it to interact with.
  */
@@ -95,12 +100,21 @@ export function TaskDetails({ task, children, className, touchLongPress = false 
     const rect = anchor.current?.getBoundingClientRect();
     if (!rect) return;
 
-    // Clamped to the viewport rather than flipped horizontally: a card that
-    // jumps sides as the pointer travels along a row is harder to read than one
-    // that stops at the edge.
+    // **Centred on the trigger**, then clamped to the viewport. Left-aligning
+    // it to the trigger's edge was fine on a narrow chip and wrong on a task
+    // row, where the row is most of the screen and the card hung off one end of
+    // it with no visible relationship to what it was describing. Centring is
+    // what makes the card read as belonging to the thing under the pointer.
+    //
+    // Still clamped rather than flipped: a card that jumps sides as the pointer
+    // travels along a row is harder to read than one that stops at the edge.
+    // The clamp is also why the entrance below scales from a fixed centre
+    // rather than from the trigger — near a viewport edge the two are not the
+    // same point, and animating from the trigger would start the card outside
+    // the window.
     const left = Math.min(
-      Math.max(MARGIN, rect.left),
-      window.innerWidth - CARD_WIDTH - MARGIN,
+      Math.max(MARGIN, rect.left + rect.width / 2 - CARD_WIDTH / 2),
+      Math.max(MARGIN, window.innerWidth - CARD_WIDTH - MARGIN),
     );
     // Above by preference, below when there is not room — measured against the
     // trigger, so a card in the top row of the dashboard opens downward.
@@ -267,7 +281,7 @@ function DetailsCard({ task, placement }: { task: Task; placement: Placement }) 
         top: placement.top,
         width: CARD_WIDTH,
         transform: placement.from === 'above' ? 'translateY(-100%)' : undefined,
-        transformOrigin: placement.from === 'above' ? 'bottom left' : 'top left',
+        transformOrigin: placement.from === 'above' ? 'bottom center' : 'top center',
         backgroundColor: 'var(--surface)',
         border: 'var(--hairline-width) solid var(--hairline)',
         borderRadius: 'var(--radius-control)',

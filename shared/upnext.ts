@@ -2,8 +2,11 @@
  * Up Next selection and ranking. PROJECT-SPEC-V2.md §8, which replaces §6.7 and
  * §7.2 of PROJECT-SPEC.md.
  *
- * Still five entries, still per-context, still excluding completed,
- * hand-blocked, and dependency-gated tasks. What changed in V2 is that a
+ * Still per-context, still excluding completed, hand-blocked, and
+ * dependency-gated tasks. The five-entry cap is now the *default* rather than
+ * the rule — the reader can grow the strip to three rows of five — but the
+ * ranking below is what fills them, in exactly the same order it always did.
+ * What changed in V2 is that a
  * schedule exists, so "what now?" has a second source of truth — and two
  * competing answers on one screen is worse than either alone. The resolution is
  * three tiers, in order, with a task appearing in the first one it qualifies
@@ -31,8 +34,19 @@ import { isGated, lookupOf } from './dependencies';
 import { endOfLocalDay, startOfLocalDay } from './schedule';
 import { DEFAULT_DIFFICULTY, type Board, type Context, type Task } from './types';
 
-/** Most entries the strip shows. §8. */
+/** Entries in one row of the strip. §8. */
 export const UP_NEXT_LIMIT = 5;
+
+/**
+ * How many rows the strip may be grown to.
+ *
+ * The cap is one row — the five §8 always specified — and the reader may add up
+ * to two more. Three is not an arbitrary ceiling: the surface sits above the
+ * boards and its whole job is to be readable without scrolling past it, and a
+ * fourth row of five pushes the board list off a phone screen entirely. Beyond
+ * that the honest answer is a board, not a longer strip.
+ */
+export const UP_NEXT_MAX_ROWS = 3;
 
 /** How far a priority flag pulls a task forward in tier 3. */
 export const PRIORITY_BONUS_MS = 24 * 60 * 60 * 1000;
@@ -102,22 +116,15 @@ function rankWithin(tier: Tier, task: Task): number {
  * deliberately *not* a tie-break any more — it is the 24-hour bonus in tier 3,
  * and having it in both places would count it twice.
  */
-export function upNext(boards: Board[], tasks: Task[], context: Context, now: number): Task[] {
-  const eligibleBoards = new Set(
-    boards.filter((b) => b.context === context && b.archivedAt === null).map((b) => b.id),
-  );
-
-  // A task waiting on an incomplete prerequisite is excluded for the same
-  // reason a hand-blocked one is: Up Next answers "what now?", and neither can
-  // be done now. It leaves the strip the moment its prerequisite is completed.
-  const lookup = lookupOf(tasks);
-
+export function upNext(
+  boards: Board[],
+  tasks: Task[],
+  context: Context,
+  now: number,
+  limit: number = UP_NEXT_LIMIT,
+): Task[] {
   const entries: Entry[] = [];
-  for (const task of tasks) {
-    if (task.completedAt !== null || task.blocked) continue;
-    if (!eligibleBoards.has(task.boardId)) continue;
-    if (isGated(task, lookup)) continue;
-
+  for (const task of answerable(boards, tasks, context)) {
     const tier = tierOf(task, now);
     if (tier === null) continue;
     entries.push({ task, tier, rank: rankWithin(tier, task) });
@@ -126,7 +133,63 @@ export function upNext(boards: Board[], tasks: Task[], context: Context, now: nu
   // Sorting the entries, not the caller's array: that one is state, and
   // Array#sort is in place.
   entries.sort(compare);
-  return entries.slice(0, UP_NEXT_LIMIT).map((entry) => entry.task);
+  return entries.slice(0, limit).map((entry) => entry.task);
+}
+
+/**
+ * The tasks the strip is allowed to consider at all: incomplete, un-blocked,
+ * un-gated, and on a live board of this context.
+ *
+ * A task waiting on an incomplete prerequisite is excluded for the same reason
+ * a hand-blocked one is: Up Next answers "what now?", and neither can be done
+ * now. It leaves the strip the moment its prerequisite is completed.
+ *
+ * Shared with `overdueTasks` on purpose. The audit exists to clear things out
+ * of this strip, so it has to be looking at the same population — an audit that
+ * offered to triage a task Up Next was never going to show is an audit that
+ * wastes the one interaction it gets each day.
+ */
+function answerable(boards: Board[], tasks: Task[], context: Context): Task[] {
+  const eligibleBoards = new Set(
+    boards.filter((b) => b.context === context && b.archivedAt === null).map((b) => b.id),
+  );
+  const lookup = lookupOf(tasks);
+
+  return tasks.filter(
+    (task) =>
+      task.completedAt === null &&
+      !task.blocked &&
+      eligibleBoards.has(task.boardId) &&
+      isGated(task, lookup) === false,
+  );
+}
+
+/**
+ * Every task the strip would rank in tier 1 — overdue, and still answerable —
+ * most overdue first.
+ *
+ * This is the Overdue Audit's list. It is deliberately *not* "everything with a
+ * date in the past": a task already marked blocked, or gated behind a
+ * prerequisite, is one whose overdue-ness has already been accounted for, and
+ * re-offering it every morning is the same clog the audit exists to clear.
+ * Triaging a task is therefore also how it leaves this list.
+ *
+ * Uncapped, unlike `upNext`. The strip has a length because it is a glance;
+ * the audit has to show all of it, because a partial list would leave the
+ * reader believing they had finished.
+ */
+export function overdueTasks(
+  boards: Board[],
+  tasks: Task[],
+  context: Context,
+  now: number,
+): Task[] {
+  const entries: Entry[] = answerable(boards, tasks, context)
+    .filter((task) => task.dueDate !== null && dueMoment(task) < now)
+    .map((task) => ({ task, tier: 1, rank: dueMoment(task) }));
+
+  entries.sort(compare);
+  return entries.map((entry) => entry.task);
 }
 
 function compare(a: Entry, b: Entry): number {

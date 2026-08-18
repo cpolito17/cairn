@@ -7,9 +7,9 @@
  * outright: `Menu`/`MenuItem` stay in the tree for the board header, and this
  * surface stops using them.
  *
- * Sections: Theme · Working hours · Notifications · Archived boards · Log out.
- * The first three are settings, the last two are actions, and the hairline
- * before Archived is where that changes.
+ * Sections: Theme · Working hours · Notifications · Overdue Audit · Archived
+ * boards · Log out. The first three are settings and the rest are actions, and
+ * the hairline before Overdue Audit is where that changes.
  *
  * Notifications live in `NotificationSettings.tsx` rather than here because
  * they are the one section with state this sheet does not own — a browser
@@ -22,7 +22,12 @@
  * anything at all.
  */
 
-import { Archive, ArrowCounterClockwise, SignOut } from '@phosphor-icons/react';
+import {
+  Archive,
+  ArrowCounterClockwise,
+  ClockCounterClockwise,
+  SignOut,
+} from '@phosphor-icons/react';
 import { useId, type ReactNode } from 'react';
 import * as api from '../lib/api';
 import { isDemo, startDemo } from '../lib/demo';
@@ -38,9 +43,16 @@ export interface SettingsSheetProps {
   open: boolean;
   onClose(): void;
   onSignedOut(): void;
+  /** Opens the Overdue Audit, which `AppShell` owns so it has one owner. */
+  onOpenOverdueAudit(): void;
 }
 
-export function SettingsSheet({ open, onClose, onSignedOut }: SettingsSheetProps) {
+export function SettingsSheet({
+  open,
+  onClose,
+  onSignedOut,
+  onOpenOverdueAudit,
+}: SettingsSheetProps) {
   // Read once per render rather than held in state: demo mode is decided before
   // this component ever mounts and cannot change under it.
   const demo = isDemo();
@@ -75,6 +87,13 @@ export function SettingsSheet({ open, onClose, onSignedOut }: SettingsSheetProps
         className="mt-6 pt-2"
         style={{ borderTop: 'var(--hairline-width) solid var(--hairline)' }}
       >
+        {/* The audit opens itself once a day (`lib/overdueAudit.ts`); this is
+            how you get at it the other twenty-three hours — after clearing a
+            backlog, or when a date moved and you want to look again. */}
+        <ActionRow icon={<ClockCounterClockwise size={20} />} onClick={onOpenOverdueAudit}>
+          Overdue Audit
+        </ActionRow>
+
         <ActionRow
           icon={<Archive size={20} />}
           onClick={() => {

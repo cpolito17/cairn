@@ -38,7 +38,12 @@ import {
 } from '../../shared/planner';
 import { DEFAULT_SETTINGS } from '../../shared/settings';
 import type { Board, BoardAccent, Context, PlannerEvent, PlannerSort, Settings, Task } from '../../shared/types';
-import { upNext } from '../../shared/upnext';
+import {
+  overdueTasks,
+  upNext,
+  UP_NEXT_LIMIT,
+  UP_NEXT_MAX_ROWS,
+} from '../../shared/upnext';
 import * as api from './api';
 import { ApiError } from './api';
 import { applyTheme, DEFAULT_THEME, initialTheme, storeTheme, type Theme } from './theme';
@@ -427,7 +432,22 @@ export const selectCompletedTasks = memoized((data: Data, boardId: string) =>
  * by" copy the caller renders, which reads the clock itself.
  */
 export const selectUpNext = memoized((data: Data, context: Context) =>
-  upNext(Object.values(data.boards), Object.values(data.tasks), context, Date.now()),
+  upNext(
+    Object.values(data.boards),
+    Object.values(data.tasks),
+    context,
+    Date.now(),
+    // Ranked to the *widest* the strip can be grown to, and sliced by the
+    // component. Growing the strip is a display change, not a different
+    // question, so it must not re-run the ranking — and a memo keyed on the row
+    // count would re-sort every task in the context on a button press.
+    UP_NEXT_LIMIT * UP_NEXT_MAX_ROWS,
+  ),
+);
+
+/** Every overdue task the strip would rank first — the Overdue Audit's list. */
+export const selectOverdue = memoized((data: Data, context: Context) =>
+  overdueTasks(Object.values(data.boards), Object.values(data.tasks), context, Date.now()),
 );
 
 /**
@@ -593,6 +613,9 @@ export const useCompletedTasks = (boardId: string): Task[] =>
 
 export const useUpNext = (context: Context): Task[] =>
   useStore((state) => selectUpNext(state, context));
+
+export const useOverdue = (context: Context): Task[] =>
+  useStore((state) => selectOverdue(state, context));
 
 export const useSettings = (): Settings => useStore((state) => state.settings);
 

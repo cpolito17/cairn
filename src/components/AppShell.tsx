@@ -32,11 +32,13 @@
 
 import { Briefcase, CaretLeft, CloudSlash, Gear, User } from '@phosphor-icons/react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { isDemo } from '../lib/demo';
+import { auditSeenToday, markAuditSeen } from '../lib/overdueAudit';
 import { navigate, useRoute, VIEW_ROOTS, viewOf, type View } from '../lib/router';
-import { useStore } from '../lib/store';
+import { selectOverdue, useStore } from '../lib/store';
 import type { Context } from '../../shared/types';
+import { OverdueAudit } from './OverdueAudit';
 import { SettingsSheet } from './SettingsSheet';
 import { Segmented } from './ui/Segmented';
 import { Wordmark } from './Wordmark';
@@ -55,6 +57,7 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
   const online = useStore((state) => state.online);
   const [scrolled, setScrolled] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
 
   // The scroll-edge fade appears only once there is content behind the header.
   useEffect(() => {
@@ -63,6 +66,8 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  useOverdueAuditOnFirstVisit(context, () => setAuditOpen(true));
 
   /**
    * A level deep is `/board/:id` and `/archived` — the two routes that sit
@@ -185,9 +190,54 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onSignedOut={onSignedOut}
+        onOpenOverdueAudit={() => {
+          setSettingsOpen(false);
+          setAuditOpen(true);
+        }}
+      />
+
+      {/* Both entry points land here: the once-a-day prompt above, and the
+          Settings row. One owner, so the panel can never be open twice. */}
+      <OverdueAudit
+        open={auditOpen}
+        onClose={() => setAuditOpen(false)}
+        context={context}
       />
     </div>
   );
+}
+
+/**
+ * Open the Overdue Audit on the first visit of the day, per context.
+ *
+ * Three conditions, and each one is load-bearing:
+ *
+ *   * **The data has to be there.** Before `/api/state` lands there are no
+ *     tasks, so there is nothing overdue and the panel would decide "all clear"
+ *     against an empty world.
+ *   * **Something has to be overdue.** A panel that opens to say nothing is
+ *     wrong is the interruption without the payload.
+ *   * **Not already offered today**, in this context (`lib/overdueAudit.ts`).
+ *
+ * The mark is written the moment it opens, so a reload five minutes later is
+ * quiet whether or not anything was triaged.
+ *
+ * It re-arms on a context switch rather than once per session: Personal and
+ * Work keep separate marks, and a first visit to Work is a first visit.
+ */
+function useOverdueAuditOnFirstVisit(context: Context, open: () => void): void {
+  const ready = useStore((state) => state.status === 'ready');
+  const overdueCount = useStore((state) => selectOverdue(state, context).length);
+  // The opener changes identity every render; the effect must not.
+  const latest = useRef(open);
+  latest.current = open;
+
+  useEffect(() => {
+    if (!ready || overdueCount === 0) return;
+    if (auditSeenToday(context)) return;
+    markAuditSeen(context);
+    latest.current();
+  }, [ready, overdueCount, context]);
 }
 
 /**
