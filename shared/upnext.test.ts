@@ -3,6 +3,7 @@ import type { Board, Context, Task } from './types';
 import {
   UP_NEXT_LIMIT,
   UP_NEXT_MAX_ROWS,
+  blockingCounts,
   dueMoment,
   effectiveDueMoment,
   overdueTasks,
@@ -99,10 +100,13 @@ describe('upNext selection', () => {
     return upNext(boards, tasks, context, NOW);
   }
 
-  it('excludes a task that is neither dated nor scheduled today', () => {
+  it('includes a task that is neither dated nor scheduled, below the dated one', () => {
+    // This used to be an exclusion. A date is evidence of urgency; its absence
+    // is not evidence of unimportance, and dropping the undated majority made
+    // the strip answer "what is due?" while claiming to answer "what now?".
     const dated = task({ id: 'dated', boardId: 'bp', dueDate: '2026-08-04' });
     const floating = task({ id: 'floating', boardId: 'bp' });
-    expect(ids(run([floating, dated]))).toEqual(['dated']);
+    expect(ids(run([floating, dated]))).toEqual(['dated', 'floating']);
   });
 
   it('excludes completed tasks', () => {
@@ -143,7 +147,11 @@ describe('upNext selection', () => {
       scheduledAt: local('2026-08-03', '10:00'),
       dependsOn: ['pre'],
     });
-    expect(ids(run([prerequisite, gated, gatedButScheduled]))).toEqual([]);
+    // Both gated tasks stay out — neither can be done now, whatever their date
+    // says. The prerequisite itself is now *in*, as tier 4: it is undated, so
+    // it used to be dropped, and it is the one task here that can actually be
+    // picked up — and doing so releases the other two.
+    expect(ids(run([prerequisite, gated, gatedButScheduled]))).toEqual(['pre']);
   });
 
   it('excludes tasks on archived boards', () => {
@@ -265,7 +273,13 @@ describe('upNext tiers', () => {
       boardId: 'bp',
       scheduledAt: local('2026-08-02', '09:00'),
     });
-    expect(ids(run([tomorrow, last, yesterday, first]))).toEqual(['first', 'last']);
+    // The other two blocks are on other days, so they miss tier 2 — but they
+    // are still open tasks, so they land in tier 5 behind everything. What this
+    // asserts is the tier boundary: only today's blocks come first.
+    expect(ids(run([tomorrow, last, yesterday, first])).slice(0, 2)).toEqual([
+      'first',
+      'last',
+    ]);
   });
 
   it('falls to tier 3 for a task scheduled another day but due at some point', () => {
@@ -589,5 +603,133 @@ describe('upNext limit', () => {
       task({ id: 'b', boardId: 'lp', dueDate: '2026-08-05' }),
     ];
     expect(upNext([personal], tasks, 'personal', NOW, 15)).toHaveLength(2);
+  });
+});
+
+/**
+ * Tiers 4 and 5 — the bottleneck tier and the remainder.
+ *
+ * These are what turned Up Next from a shortlist of dated work into a ranking
+ * of everything open. The dated tiers above are unchanged and still win, so the
+ * cases that matter here are the boundary (a dated blocker stays in tier 3) and
+ * the ordering inside tier 4 (most-depended-on first).
+ */
+describe('upNext tiers 4 and 5', () => {
+  const personal = board({ id: 'bt', context: 'personal' });
+
+  function run(tasks: Task[]): Task[] {
+    return upNext([personal], tasks, 'personal', NOW, 50);
+  }
+
+  it('ranks an undated blocker above the undated remainder', () => {
+    const blocker = task({ id: 'blocker', boardId: 'bt' });
+    const waiting = task({ id: 'waiting', boardId: 'bt', dependsOn: ['blocker'] });
+    const loose = task({ id: 'loose', boardId: 'bt' });
+
+    // `waiting` is gated, so it is not offered; `blocker` is what to do about it.
+    expect(ids(run([loose, waiting, blocker]))).toEqual(['blocker', 'loose']);
+  });
+
+  it('sorts tier 4 by how much it is holding up, most first', () => {
+    const one = task({ id: 'one', boardId: 'bt' });
+    const three = task({ id: 'three', boardId: 'bt' });
+    const waitingOnOne = task({ id: 'w1', boardId: 'bt', dependsOn: ['one'] });
+    const a = task({ id: 'a', boardId: 'bt', dependsOn: ['three'] });
+    const b = task({ id: 'b', boardId: 'bt', dependsOn: ['three'] });
+    const c = task({ id: 'c', boardId: 'bt', dependsOn: ['three'] });
+
+    expect(ids(run([one, three, waitingOnOne, a, b, c]))).toEqual(['three', 'one']);
+  });
+
+  it('does not count completed dependents — a released prerequisite is not a bottleneck', () => {
+    const stale = task({ id: 'stale', boardId: 'bt' });
+    const finished = task({
+      id: 'finished',
+      boardId: 'bt',
+      dependsOn: ['stale'],
+      completedAt: NOW,
+    });
+    const live = task({ id: 'live', boardId: 'bt' });
+    const waiting = task({ id: 'waiting', boardId: 'bt', dependsOn: ['live'] });
+
+    // `stale` blocks only a finished task, so it drops to tier 5 behind `live`.
+    expect(ids(run([stale, finished, live, waiting]))).toEqual(['live', 'stale']);
+  });
+
+  it('keeps a dated blocker in tier 3 — first tier it qualifies for, never twice', () => {
+    const datedBlocker = task({
+      id: 'datedBlocker',
+      boardId: 'bt',
+      dueDate: '2026-08-20',
+    });
+    const waiting = task({ id: 'waiting', boardId: 'bt', dependsOn: ['datedBlocker'] });
+    const undatedBlocker = task({ id: 'undatedBlocker', boardId: 'bt' });
+    const alsoWaiting = task({
+      id: 'alsoWaiting',
+      boardId: 'bt',
+      dependsOn: ['undatedBlocker'],
+    });
+
+    // Due in three weeks, but tier 3 still outranks tier 4 — a date is a
+    // commitment and the ranking never sinks one below something without.
+    expect(ids(run([undatedBlocker, alsoWaiting, datedBlocker, waiting]))).toEqual([
+      'datedBlocker',
+      'undatedBlocker',
+    ]);
+  });
+
+  it('breaks tier 5 ties toward the higher difficulty, then the lower id', () => {
+    const easy = task({ id: 'a-easy', boardId: 'bt', difficulty: 1 });
+    const hard = task({ id: 'z-hard', boardId: 'bt', difficulty: 5 });
+    const unset = task({ id: 'm-unset', boardId: 'bt' });
+
+    // Unset weighs the midpoint 3, as it does everywhere else.
+    expect(ids(run([easy, unset, hard]))).toEqual(['z-hard', 'm-unset', 'a-easy']);
+  });
+
+  it('still excludes what cannot be picked up, however it would have been tiered', () => {
+    const blocked = task({ id: 'blocked', boardId: 'bt', blocked: true });
+    const done = task({ id: 'done', boardId: 'bt', completedAt: NOW });
+    const open = task({ id: 'open', boardId: 'bt' });
+
+    expect(ids(run([blocked, done, open]))).toEqual(['open']);
+  });
+
+  it('ranks the whole open board, so the strip length is the only cap', () => {
+    const many = Array.from({ length: 40 }, (_, index) =>
+      task({ id: `bulk${String(index).padStart(2, '0')}`, boardId: 'bt' }),
+    );
+    expect(run(many)).toHaveLength(40);
+    // The strip itself still shows only what its rows allow.
+    expect(upNext([personal], many, 'personal', NOW)).toHaveLength(UP_NEXT_LIMIT);
+    expect(
+      upNext([personal], many, 'personal', NOW, UP_NEXT_LIMIT * UP_NEXT_MAX_ROWS),
+    ).toHaveLength(UP_NEXT_LIMIT * UP_NEXT_MAX_ROWS);
+  });
+});
+
+describe('blockingCounts', () => {
+  it('counts incomplete dependents per prerequisite', () => {
+    const a = task({ id: 'a' });
+    const b = task({ id: 'b', dependsOn: ['a'] });
+    const c = task({ id: 'c', dependsOn: ['a'] });
+    const counts = blockingCounts([a, b, c]);
+    expect(counts.get('a')).toBe(2);
+    expect(counts.has('b')).toBe(false);
+  });
+
+  it('ignores links held by a completed dependent', () => {
+    const a = task({ id: 'a' });
+    const done = task({ id: 'done', dependsOn: ['a'], completedAt: 1 });
+    expect(blockingCounts([a, done]).has('a')).toBe(false);
+  });
+
+  it('counts each prerequisite of a task with several', () => {
+    const a = task({ id: 'a' });
+    const b = task({ id: 'b' });
+    const c = task({ id: 'c', dependsOn: ['a', 'b'] });
+    const counts = blockingCounts([a, b, c]);
+    expect(counts.get('a')).toBe(1);
+    expect(counts.get('b')).toBe(1);
   });
 });

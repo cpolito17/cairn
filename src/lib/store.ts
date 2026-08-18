@@ -39,6 +39,7 @@ import {
 import { DEFAULT_SETTINGS } from '../../shared/settings';
 import type { Board, BoardAccent, Context, PlannerEvent, PlannerSort, Settings, Task } from '../../shared/types';
 import {
+  blockingCounts,
   overdueTasks,
   upNext,
   UP_NEXT_LIMIT,
@@ -445,6 +446,17 @@ export const selectUpNext = memoized((data: Data, context: Context) =>
   ),
 );
 
+/**
+ * How many incomplete tasks are waiting on each task.
+ *
+ * Memoized on the task map rather than computed per card: an Up Next strip of
+ * fifteen would otherwise walk every task in the context fifteen times to
+ * answer the same question.
+ */
+export const selectBlockingCounts = memoized((data: Data, _key: null) =>
+  blockingCounts(Object.values(data.tasks)),
+);
+
 /** Every overdue task the strip would rank first — the Overdue Audit's list. */
 export const selectOverdue = memoized((data: Data, context: Context) =>
   overdueTasks(Object.values(data.boards), Object.values(data.tasks), context, Date.now()),
@@ -616,6 +628,10 @@ export const useUpNext = (context: Context): Task[] =>
 
 export const useOverdue = (context: Context): Task[] =>
   useStore((state) => selectOverdue(state, context));
+
+/** How many incomplete tasks are waiting on this one. */
+export const useBlockingCount = (id: string): number =>
+  useStore((state) => selectBlockingCounts(state, null).get(id) ?? 0);
 
 export const useSettings = (): Settings => useStore((state) => state.settings);
 

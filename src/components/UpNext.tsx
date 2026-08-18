@@ -1,10 +1,15 @@
 /**
  * Up Next. PROJECT-SPEC.md §6.7, §7.2, §9.3.
  *
- * Answers "what now?" without opening anything: the most urgent dated,
- * unblocked, incomplete tasks across every board of the current context. The
- * ranking is `selectUpNext` — this component does not filter or sort, it only
- * renders what the selector hands it.
+ * Answers "what now?" without opening anything: the most urgent open tasks
+ * across every board of the current context, ranked. The ranking is
+ * `selectUpNext` — this component does not filter or sort, it only renders what
+ * the selector hands it.
+ *
+ * **Every open task is a candidate**, not only the dated ones. The five tiers
+ * are in `shared/upnext.ts`; what matters here is that the strip's length is
+ * now the only thing deciding how much is shown, which is why the row control
+ * below is the surface's main affordance rather than a nicety.
  *
  * Layout is a row that scrolls horizontally and bleeds off the right edge on
  * narrow viewports, which is what signals there is more without a scrollbar or
@@ -25,7 +30,15 @@
  * at full contrast, because an overdue task is not a warning, it is a task.
  */
 
-import { CalendarBlank, Check, Clock, Flag, Minus, Plus } from '@phosphor-icons/react';
+import {
+  CalendarBlank,
+  Check,
+  Clock,
+  Flag,
+  LinkSimple,
+  Minus,
+  Plus,
+} from '@phosphor-icons/react';
 import { motion } from 'motion/react';
 import { useState, type ReactNode } from 'react';
 import { claimColdLoad, staggerDelay } from '../lib/coldload';
@@ -37,8 +50,13 @@ import {
 } from '../lib/collapse';
 import { formatBlockTime, formatDue, formatOverdue } from '../lib/dates';
 import { toggleComplete } from '../lib/actions';
-import { useStore, useUpNext } from '../lib/store';
-import { isScheduledEntry, UP_NEXT_LIMIT, UP_NEXT_MAX_ROWS } from '../../shared/upnext';
+import { useBlockingCount, useStore, useUpNext } from '../lib/store';
+import {
+  isScheduledEntry,
+  isUndatedEntry,
+  UP_NEXT_LIMIT,
+  UP_NEXT_MAX_ROWS,
+} from '../../shared/upnext';
 import type { Context, Task } from '../../shared/types';
 import { Skeleton } from './ui/Skeleton';
 import { TaskDetails } from './TaskDetails';
@@ -89,7 +107,11 @@ export function UpNext({
         {shown.length === 0 ? (
           // One quiet line. No illustration, no call to action — this surface
           // must not shout when it has nothing to say (§6.7).
-          <p className="pb-2 text-body text-text-secondary">Nothing scheduled</p>
+          //
+          // It no longer says "Nothing scheduled": the strip ranks every open
+          // task now, so reaching this state means there is no open work at
+          // all, not merely none with a date on it.
+          <p className="pb-2 text-body text-text-secondary">Nothing to pick up</p>
         ) : (
           <div className="grid gap-3">
             {Array.from({ length: rows }, (_, row) =>
@@ -219,6 +241,7 @@ function StepButton({
 
 function UpNextCard({ task, onOpenTask }: { task: Task; onOpenTask(task: Task): void }) {
   const board = useStore((state) => state.boards[task.boardId]);
+  const blocking = useBlockingCount(task.id);
   const [now] = useState(() => Date.now());
   // An entry present because of its block leads with the scheduled time behind
   // a clock; one present because of its date leads with the date behind a
@@ -226,9 +249,19 @@ function UpNextCard({ task, onOpenTask }: { task: Task; onOpenTask(task: Task): 
   // why this asks the ranking rather than checking `scheduledAt` itself.
   const scheduled = isScheduledEntry(task, now);
   const overdue = scheduled ? null : formatOverdue(task, now);
+
+  // An undated entry has no moment to lead with, so it says what it is holding
+  // up instead — which is also the only thing distinguishing the bottleneck
+  // tier from the remainder below it. Without this the two look identical and
+  // the ordering the strip just did is invisible.
+  const undated = isUndatedEntry(task, now);
   const line = scheduled
     ? formatBlockTime(task.scheduledAt as number)
-    : (overdue ?? formatDue(task, now));
+    : undated
+      ? blocking > 0
+        ? `Blocking ${blocking} ${blocking === 1 ? 'task' : 'tasks'}`
+        : null
+      : (overdue ?? formatDue(task, now));
 
   return (
     <div
@@ -293,6 +326,10 @@ function UpNextCard({ task, onOpenTask }: { task: Task; onOpenTask(task: Task): 
           >
             {scheduled ? (
               <Clock size={13} aria-hidden="true" />
+            ) : undated ? (
+              // The same glyph the hover card uses for "waiting on", read from
+              // the other end — one symbol for one relationship.
+              <LinkSimple size={13} aria-hidden="true" />
             ) : (
               <CalendarBlank size={13} aria-hidden="true" />
             )}

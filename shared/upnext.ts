@@ -19,6 +19,22 @@
  *      qualifies here with or without a due date.
  *   3. **Everything else with a due date**, by *effective* due moment: the due
  *      moment minus 24 hours when the task is priority-flagged.
+ *   4. **Undated tasks that something else is waiting on**, most-depended-on
+ *      first. The bottleneck tier.
+ *   5. **Everything else that is open.**
+ *
+ * Tiers 4 and 5 are newer than the rest and they changed what this surface is.
+ * It used to rank only tasks carrying a date or a block and drop the remainder
+ * on the floor, which meant a board of dozens of live tasks could answer "what
+ * now?" with four of them. A date is evidence of urgency; its absence is not
+ * evidence of unimportance. Now everything answerable is ranked and the strip's
+ * own length — one to three rows of five, the reader's choice — is the only
+ * thing that decides how much of it is shown.
+ *
+ * Tier 4 sits above the remainder because finishing a prerequisite is worth
+ * more than finishing an ordinary task: it also releases whatever was queued
+ * behind it. `PROJECT-SPEC-V2.md` §12 called that the highest-leverage thing on
+ * a board and noted it looked like every other task; this is that, acted on.
  *
  * That 24-hour bonus is how "priority tasks near their due date rank highest"
  * becomes a sort rather than a vibe. A flagged task jumps ahead of anything due
@@ -77,17 +93,38 @@ export function effectiveDueMoment(task: Pick<Task, 'dueDate' | 'dueTime' | 'pri
   return dueMoment(task) - (task.priority ? PRIORITY_BONUS_MS : 0);
 }
 
-/** 1 overdue, 2 scheduled today, 3 dated. Anything else does not qualify. */
-type Tier = 1 | 2 | 3;
+/**
+ * 1 overdue, 2 scheduled today, 3 dated, 4 blocking something, 5 everything
+ * else. Every answerable task lands in exactly one.
+ *
+ * Tiers 4 and 5 are what turned the strip from a shortlist of *dated* work into
+ * a ranking of all of it. A date is evidence of urgency, but its absence is not
+ * evidence of unimportance — most tasks never get one, and a surface that
+ * silently ignored them was answering "what is due?" while claiming to answer
+ * "what now?".
+ *
+ * Tier 4 is the bottleneck tier: a task that something else is waiting on. It
+ * outranks the undated remainder because finishing it is worth more than
+ * finishing it alone — it also releases whatever was queued behind it. That is
+ * the leverage `PROJECT-SPEC-V2.md` §12 described and nothing acted on until
+ * now.
+ *
+ * The dated tiers are untouched and still come first, so a task with a date
+ * never sinks below one without. A blocking task that *has* a date stays in
+ * tier 3 for the same reason it always did: first tier it qualifies for, never
+ * twice.
+ */
+type Tier = 1 | 2 | 3 | 4 | 5;
 
 interface Entry {
   task: Task;
   tier: Tier;
-  /** The moment this entry's own tier ranks it by. Ascending in all three. */
+  /** What this entry's own tier ranks it by. Ascending in all five. */
   rank: number;
 }
 
-function tierOf(task: Task, now: number): Tier | null {
+/** The dated tiers, 1–3, or null for a task no date or block puts in one. */
+function datedTierOf(task: Task, now: number): 1 | 2 | 3 | null {
   if (task.dueDate !== null && dueMoment(task) < now) return 1;
   if (
     task.scheduledAt !== null &&
@@ -99,10 +136,39 @@ function tierOf(task: Task, now: number): Tier | null {
   return task.dueDate !== null ? 3 : null;
 }
 
-function rankWithin(tier: Tier, task: Task): number {
+/**
+ * How many incomplete tasks are waiting on each task.
+ *
+ * Only incomplete dependents count. A prerequisite whose dependents are all
+ * finished is not holding anything up any more, and calling it a bottleneck
+ * would be reading history rather than the current state of the board.
+ *
+ * Completed prerequisites are counted here too and filtered out later by
+ * `answerable` — cheaper than checking, and the map is not read for them.
+ */
+export function blockingCounts(tasks: Task[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const task of tasks) {
+    if (task.completedAt !== null) continue;
+    for (const id of task.dependsOn) {
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+function rankWithin(tier: Tier, task: Task, blocking: Map<string, number>): number {
   if (tier === 1) return dueMoment(task);
   if (tier === 2) return task.scheduledAt as number;
-  return effectiveDueMoment(task);
+  if (tier === 3) return effectiveDueMoment(task);
+  // Negated so the ordinary ascending sort puts the *most* depended-on first:
+  // a task with six things queued behind it is worth more than one with two.
+  if (tier === 4) return -(blocking.get(task.id) ?? 0);
+  // Tier 5 has nothing of its own to rank by, so every entry ties and the
+  // shared tie-break decides — difficulty descending, then id. That is the same
+  // rule the other four tiers already break ties with, so the remainder is
+  // ordered by the same idea as everything above it rather than by arrival.
+  return 0;
 }
 
 /**
@@ -123,11 +189,15 @@ export function upNext(
   now: number,
   limit: number = UP_NEXT_LIMIT,
 ): Task[] {
+  const blocking = blockingCounts(tasks);
+
   const entries: Entry[] = [];
   for (const task of answerable(boards, tasks, context)) {
-    const tier = tierOf(task, now);
-    if (tier === null) continue;
-    entries.push({ task, tier, rank: rankWithin(tier, task) });
+    // No `continue` any more: every answerable task has a tier now, which is
+    // the whole of what changed. A task with no date and nothing waiting on it
+    // is tier 5 rather than absent.
+    const tier: Tier = datedTierOf(task, now) ?? (blocking.has(task.id) ? 4 : 5);
+    entries.push({ task, tier, rank: rankWithin(tier, task, blocking) });
   }
 
   // Sorting the entries, not the caller's array: that one is state, and
@@ -209,7 +279,24 @@ function compare(a: Entry, b: Entry): number {
  * The card leads with the scheduled time behind a clock glyph when it is, and
  * with the due date behind a calendar glyph when it is not (§8) — an entry that
  * has both shows the one its tier is about.
+ *
+ * Asks `datedTierOf` rather than the full tier, and needs nothing about what is
+ * blocking what: tier 2 is decided before tiers 4 and 5 are ever considered, so
+ * the answer is the same either way and this stays a question the card can ask
+ * about one task on its own.
  */
 export function isScheduledEntry(task: Task, now: number): boolean {
-  return tierOf(task, now) === 2;
+  return datedTierOf(task, now) === 2;
+}
+
+/**
+ * True when a task has no date and no block of its own — so its card has no
+ * time to lead with, and says what it is holding up instead.
+ *
+ * The distinction the card actually needs is "is there a moment to print",
+ * which is exactly the dated tiers. Whether such a task is tier 4 or tier 5 is
+ * then just its blocking count, which the card reads separately.
+ */
+export function isUndatedEntry(task: Task, now: number): boolean {
+  return datedTierOf(task, now) === null;
 }
