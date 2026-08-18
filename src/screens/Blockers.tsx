@@ -508,9 +508,34 @@ function DependencyBoard({
                   // against exactly this element).
                   minHeight: NODE_HEIGHT,
                   transform: `translate3d(${x}px, ${y}px, 0)`,
+                  // **A column flex box, so the card inside actually fills it.**
+                  //
+                  // This is what keeps every edge on a node's true middle. The
+                  // geometry draws each endpoint at `pixelTop + heightOf / 2`,
+                  // where `heightOf` is what *this* element measured — so the
+                  // card the reader sees has to be exactly this tall, or the
+                  // line lands on the middle of a box that is not the one drawn.
+                  //
+                  // It used to not be. The card asked for `height: 100%`, and a
+                  // percentage height resolves against the parent's *height* —
+                  // which is `auto` here, since `minHeight` is only a floor. CSS
+                  // says an unresolvable percentage height becomes `auto`, so
+                  // the card fell back to its content and sat at the top of a
+                  // taller box, leaving dead space underneath. The error was
+                  // invisible on a node whose name wrapped to the full 88px and
+                  // grew with every line it did not need — which is exactly the
+                  // "some of them look fine" shape of the bug.
+                  //
+                  // Stretching a flex item does not go through percentage
+                  // resolution at all, so there is nothing left to fail.
+                  display: 'flex',
+                  flexDirection: 'column',
                 }}
               >
-                <TaskDetails task={node.task} className="block h-full" touchLongPress>
+                {/* `flex-1` takes the wrapper's full height; `flex` makes this a
+                    row so the card stretches to it by `align-items: stretch`
+                    rather than by another percentage. */}
+                <TaskDetails task={node.task} className="flex min-h-0 flex-1" touchLongPress>
                   <BlockerNodeCard
                     node={node}
                     lookup={lookup}
@@ -790,7 +815,11 @@ function BlockerNodeCard({
 
   return (
     <div
-      className="blocker-node theme-eased flex h-full items-stretch rounded-control bg-surface"
+      // `w-full`, not `h-full`. This is a flex item of the wrapper above now, so
+      // its height comes from `align-items: stretch` — but a flex item sizes to
+      // its *content* horizontally, which a block box did not, so the width is
+      // the half that has to be asked for.
+      className="blocker-node theme-eased flex w-full items-stretch rounded-control bg-surface"
       data-state={done ? 'completed' : gated ? 'gated' : 'open'}
       style={{
         // A live drop target overrides the state ring while the drag is in the
