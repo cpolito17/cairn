@@ -1,5 +1,5 @@
 /**
- * The router. History API, six routes, three views, no dependency.
+ * The router. History API, route table, no dependency.
  *
  * The History API rather than a piece of component state is the whole point:
  * the browser's back and forward buttons have to work, and a hard reload on
@@ -10,13 +10,10 @@
  * whatever the path — which is what lets the user land back where they were
  * after unlocking (§6.1) instead of at `/login`.
  *
- * **Routes and views are not the same thing** (V2 §4.1). There are six routes
- * and three views, because `/board/:id` and `/archived` sit *under* Boards
- * rather than beside it: they are places within the Boards view, so the header
- * selector stays on Boards there rather than clearing. `viewOf` is that
- * mapping, and it lives here — next to `parseRoute` — because the alternative
- * is the header deciding for itself which routes count as Boards, which is the
- * same table maintained twice.
+ * **Routes and views are not the same thing** (V2 §4.1). `/board/:id` and
+ * `/archived` sit *under* Boards rather than beside it, and `/demo` is an entry
+ * alias for the Boards home. `viewOf` keeps that mapping next to `parseRoute`
+ * so the header does not maintain a second route table of its own.
  */
 
 import { useCallback, useSyncExternalStore, type ReactNode } from 'react';
@@ -35,7 +32,7 @@ export const VIEWS = ['boards', 'blockers', 'planner'] as const;
 export type View = (typeof VIEWS)[number];
 
 export function parseRoute(pathname: string): Route {
-  if (pathname === '/') return { name: 'home' };
+  if (pathname === '/' || pathname === '/demo') return { name: 'home' };
   if (pathname === '/archived') return { name: 'archived' };
   if (pathname === '/blockers') return { name: 'blockers' };
   if (pathname === '/planner') return { name: 'planner' };

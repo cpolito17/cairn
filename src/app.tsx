@@ -18,8 +18,11 @@
 import { MotionConfig } from 'motion/react';
 import { useEffect, useState } from 'react';
 import { AppShell } from './components/AppShell';
+import { Button } from './components/ui/Button';
+import { Dialog, DialogHeader } from './components/ui/Dialog';
 import { Toaster } from './components/ui/Toast';
 import * as api from './lib/api';
+import { isDemo, startDemo } from './lib/demo';
 import { refreshSubscription } from './lib/push';
 import { setRedirect } from './lib/redirect';
 import { Link, useRoute } from './lib/router';
@@ -33,6 +36,16 @@ import { Login } from './screens/Login';
 import { Planner } from './screens/Planner';
 
 type Auth = 'checking' | 'in' | 'out';
+
+/**
+ * `/demo` is an entry path, not a second version of the app. Start the local
+ * demo backend before the session probe runs, then let the normal boot path do
+ * the rest. An existing world survives a reload in the same tab.
+ */
+const directDemoEntry =
+  typeof window !== 'undefined' && window.location.pathname === '/demo';
+
+if (directDemoEntry && !isDemo()) startDemo();
 
 /**
  * Cached so React's StrictMode double-invoke — and any remount — asks the
@@ -76,7 +89,12 @@ export function App() {
 
   if (auth === 'checking') return null;
   if (auth === 'out') return <Login />;
-  return <SignedIn onSignedOut={() => setAuth('out')} />;
+  return (
+    <SignedIn
+      onSignedOut={() => setAuth('out')}
+      welcomeToDemo={directDemoEntry}
+    />
+  );
 }
 
 function rememberDestination(): void {
@@ -84,8 +102,15 @@ function rememberDestination(): void {
   if (here !== '/') setRedirect(here);
 }
 
-function SignedIn({ onSignedOut }: { onSignedOut(): void }) {
+function SignedIn({
+  onSignedOut,
+  welcomeToDemo,
+}: {
+  onSignedOut(): void;
+  welcomeToDemo: boolean;
+}) {
   const load = useStore((state) => state.load);
+  const [demoWelcomeOpen, setDemoWelcomeOpen] = useState(welcomeToDemo);
 
   useEffect(() => {
     void load();
@@ -107,11 +132,37 @@ function SignedIn({ onSignedOut }: { onSignedOut(): void }) {
     // `reducedMotion="user"` makes every motion component honour
     // prefers-reduced-motion without each one asking (§8.5).
     <MotionConfig reducedMotion="user">
-      <AppShell onSignedOut={onSignedOut}>
+      <AppShell onSignedOut={onSignedOut} suppressOverdueAudit={welcomeToDemo}>
         <Routes />
       </AppShell>
+      <DemoWelcome open={demoWelcomeOpen} onClose={() => setDemoWelcomeOpen(false)} />
       <Toaster />
     </MotionConfig>
+  );
+}
+
+function DemoWelcome({ open, onClose }: { open: boolean; onClose(): void }) {
+  return (
+    <Dialog open={open} onClose={onClose} title="Welcome to the demo">
+      <DialogHeader title="Welcome to the demo" onClose={onClose} />
+
+      <div className="space-y-3 text-body text-text-secondary">
+        <p>
+          This is the demo version of Cairn. Its sample world turns Homer&apos;s{' '}
+          <em>The Odyssey</em> into a task plan: help Odysseus reach Ithaca, manage
+          his crew, and organize the many problems he meets along the way.
+        </p>
+        <p>
+          You can freely add, edit, schedule, complete, and reorder tasks. The
+          demo stays in this browser tab, does not affect the live account, and
+          is deleted when you leave it.
+        </p>
+      </div>
+
+      <Button className="mt-6" fullWidth onClick={onClose}>
+        Start exploring
+      </Button>
+    </Dialog>
   );
 }
 

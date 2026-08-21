@@ -17,6 +17,11 @@ describe('parseRoute', () => {
     expect(parseRoute('/planner')).toEqual({ name: 'planner' });
   });
 
+  it('uses the direct demo entry as the Boards home', () => {
+    expect(parseRoute('/demo')).toEqual({ name: 'home' });
+    expect(viewOf(parseRoute('/demo'))).toBe('boards');
+  });
+
   it('reads the two routes under Boards', () => {
     expect(parseRoute('/archived')).toEqual({ name: 'archived' });
     expect(parseRoute('/board/abc')).toEqual({ name: 'board', id: 'abc' });
@@ -29,6 +34,7 @@ describe('parseRoute', () => {
   it('does not mistake a deeper path for a known route', () => {
     expect(parseRoute('/planner/week')).toEqual({ name: 'notFound', path: '/planner/week' });
     expect(parseRoute('/board/abc/edit')).toEqual({ name: 'notFound', path: '/board/abc/edit' });
+    expect(parseRoute('/demo/more')).toEqual({ name: 'notFound', path: '/demo/more' });
   });
 });
 
