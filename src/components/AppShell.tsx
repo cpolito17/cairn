@@ -50,7 +50,16 @@ const VIEW_OPTIONS: { value: View; label: string }[] = [
   { value: 'planner', label: 'Planner' },
 ];
 
-export function AppShell({ children, onSignedOut }: { children: ReactNode; onSignedOut(): void }) {
+export function AppShell({
+  children,
+  onSignedOut,
+  suppressOverdueAudit = false,
+}: {
+  children: ReactNode;
+  onSignedOut(): void;
+  /** Direct demo entry owns the first-run explanation and suppresses a second modal. */
+  suppressOverdueAudit?: boolean;
+}) {
   const route = useRoute();
   const context = useStore((state) => state.context);
   const setContext = useStore((state) => state.setContext);
@@ -67,7 +76,7 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  useOverdueAuditOnFirstVisit(context, () => setAuditOpen(true));
+  useOverdueAuditOnFirstVisit(context, () => setAuditOpen(true), suppressOverdueAudit);
 
   /**
    * A level deep is `/board/:id` and `/archived` — the two routes that sit
@@ -225,7 +234,11 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
  * It re-arms on a context switch rather than once per session: Personal and
  * Work keep separate marks, and a first visit to Work is a first visit.
  */
-function useOverdueAuditOnFirstVisit(context: Context, open: () => void): void {
+function useOverdueAuditOnFirstVisit(
+  context: Context,
+  open: () => void,
+  suppressed = false,
+): void {
   const ready = useStore((state) => state.status === 'ready');
   const overdueCount = useStore((state) => selectOverdue(state, context).length);
   // The opener changes identity every render; the effect must not.
@@ -233,11 +246,11 @@ function useOverdueAuditOnFirstVisit(context: Context, open: () => void): void {
   latest.current = open;
 
   useEffect(() => {
-    if (!ready || overdueCount === 0) return;
+    if (suppressed || !ready || overdueCount === 0) return;
     if (auditSeenToday(context)) return;
     markAuditSeen(context);
     latest.current();
-  }, [ready, overdueCount, context]);
+  }, [ready, overdueCount, context, suppressed]);
 }
 
 /**
@@ -303,3 +316,4 @@ function OfflineIndicator() {
     </motion.div>
   );
 }
+
