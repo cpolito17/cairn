@@ -20,6 +20,7 @@ import { useEffect, useState } from 'react';
 import { AppShell } from './components/AppShell';
 import { Toaster } from './components/ui/Toast';
 import * as api from './lib/api';
+import { isDemo, startDemo } from './lib/demo';
 import { refreshSubscription } from './lib/push';
 import { setRedirect } from './lib/redirect';
 import { Link, useRoute } from './lib/router';
@@ -33,6 +34,11 @@ import { Login } from './screens/Login';
 import { Planner } from './screens/Planner';
 
 type Auth = 'checking' | 'in' | 'out';
+
+// `/demo` is a public entry alias backed entirely by per-tab browser storage.
+// It never creates or reads data in the owner's authenticated workspace.
+const directDemoEntry = typeof window !== 'undefined' && /^\/demo\/?$/.test(window.location.pathname);
+if (directDemoEntry && !isDemo()) startDemo();
 
 /**
  * Cached so React's StrictMode double-invoke — and any remount — asks the

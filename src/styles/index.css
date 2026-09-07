@@ -1,6 +1,24 @@
 @import 'tailwindcss';
 @import './tokens.css';
 
+.portfolio-link {
+  min-height: var(--tap-target);
+}
+
+@media (max-width: 560px) {
+  .portfolio-link-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
 /* Self-hosted Geist Sans, served from this app's own origin. One variable file
    covers 100–900, so there is a single font request for the whole type scale. */
 @font-face {

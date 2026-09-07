@@ -154,6 +154,7 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
           </div>
 
           <div className="app-header-actions">
+            {isDemo() && <PortfolioLink />}
             <ContextToggle context={context} onChange={setContext} />
 
             <button
@@ -204,6 +205,22 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
         context={context}
       />
     </div>
+  );
+}
+
+function PortfolioLink() {
+  return (
+    <a
+      href="https://charliepolito.com/"
+      className="portfolio-link pressable hoverable inline-flex shrink-0 items-center gap-2 rounded-pill
+                 bg-surface-2 px-3 text-text-secondary"
+      aria-label="Back to CharliePolito.com portfolio"
+    >
+      <img src="/brand/portfolio-hd.svg" alt="" aria-hidden="true" width="20" height="20" />
+      <span className="portfolio-link-label text-meta" style={{ fontWeight: 600 }}>
+        CharliePolito.com
+      </span>
+    </a>
   );
 }
 

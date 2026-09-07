@@ -35,15 +35,16 @@ export const VIEWS = ['boards', 'blockers', 'planner'] as const;
 export type View = (typeof VIEWS)[number];
 
 export function parseRoute(pathname: string): Route {
-  if (pathname === '/') return { name: 'home' };
-  if (pathname === '/archived') return { name: 'archived' };
-  if (pathname === '/blockers') return { name: 'blockers' };
-  if (pathname === '/planner') return { name: 'planner' };
+  const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+  if (normalized === '/' || normalized === '/demo') return { name: 'home' };
+  if (normalized === '/archived') return { name: 'archived' };
+  if (normalized === '/blockers') return { name: 'blockers' };
+  if (normalized === '/planner') return { name: 'planner' };
 
-  const board = /^\/board\/([^/]+)$/.exec(pathname);
+  const board = /^\/board\/([^/]+)$/.exec(normalized);
   if (board) return { name: 'board', id: decodeURIComponent(board[1]) };
 
-  return { name: 'notFound', path: pathname };
+  return { name: 'notFound', path: normalized };
 }
 
 /**

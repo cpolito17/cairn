@@ -1,0 +1,12 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "ARIA keyboard shortcut metadata is not an API credential"
+paths = [
+  '''src/components/planner/Block\.tsx''',
+]
+regexTarget = "match"
+regexes = [
+  '''aria-keyshortcuts="[^"]+"''',
+]

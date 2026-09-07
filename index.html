@@ -6,19 +6,30 @@
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1"
     />
-    <title>tasks</title>
-    <meta name="description" content="Boards and tasks." />
+    <title>Cairn — Visual task planning demo</title>
+    <meta name="description" content="Explore Cairn, a visual task planner for boards, dependencies, schedules, and focused daily work." />
     <meta name="robots" content="noindex, nofollow" />
+    <link rel="canonical" href="https://tasks.charliepolito.com/demo" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="tasks" />
 
     <!-- The cover image doubles as the link-preview a share sheet or chat
          app renders — the same reason it exists for the manifest. -->
-    <meta property="og:title" content="tasks" />
-    <meta property="og:description" content="Boards and tasks." />
-    <meta property="og:image" content="/brand/tasks.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://tasks.charliepolito.com/demo" />
+    <meta property="og:title" content="Cairn — Visual task planning demo" />
+    <meta property="og:description" content="Explore boards, task dependencies, schedules, and daily planning in a private browser-based demo." />
+    <meta property="og:image" content="https://tasks.charliepolito.com/brand/tasks.png" />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:image" content="/brand/tasks.png" />
+    <meta name="twitter:title" content="Cairn — Visual task planning demo" />
+    <meta name="twitter:description" content="A visual task planner for boards, dependencies, schedules, and focused daily work." />
+    <script>
+      if (location.pathname === '/demo') document.querySelector('meta[name="robots"]').content = 'index, follow';
+    </script>
+    <script type="application/ld+json">
+      {"@context":"https://schema.org","@type":"SoftwareApplication","name":"Cairn","url":"https://tasks.charliepolito.com/demo","applicationCategory":"BusinessApplication","operatingSystem":"Web","description":"A visual task planner for boards, task dependencies, scheduling, and daily focus."}
+    </script>
 
     <link rel="icon" href="/brand/task-tracker-t-logo.ico" sizes="any" />
     <link rel="apple-touch-icon" href="/brand/tasks.png" />

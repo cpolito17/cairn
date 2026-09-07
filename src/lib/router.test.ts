@@ -17,6 +17,11 @@ describe('parseRoute', () => {
     expect(parseRoute('/planner')).toEqual({ name: 'planner' });
   });
 
+  it('treats the public demo entry as the boards home', () => {
+    expect(parseRoute('/demo')).toEqual({ name: 'home' });
+    expect(parseRoute('/demo/')).toEqual({ name: 'home' });
+  });
+
   it('reads the two routes under Boards', () => {
     expect(parseRoute('/archived')).toEqual({ name: 'archived' });
     expect(parseRoute('/board/abc')).toEqual({ name: 'board', id: 'abc' });
