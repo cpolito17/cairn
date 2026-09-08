@@ -861,3 +861,45 @@ from the release that introduced it:
 
 **Still out of scope**, unchanged from §11: dependencies that cross boards, and
 any gate whose cause is somewhere the user is not looking.
+
+
+## 15. Addendum — the Closed log
+
+**A fourth view: Closed** (`/closed`), beside Boards, Blockers and Planner in
+the same segmented control §4.1 gave its meaning to. The other three answer
+"what is left"; this one answers "what got done".
+
+**What it is.** Every completed task in the active context, in one table, most
+recently closed first: task name, board, the moment it was closed, and how long
+it took from creation to completion. It reads across boards, which is exactly
+what a board's own Completed group cannot do.
+
+**A table, not the app's usual card list.** This is the one screen whose
+question is comparative — the user reads *down* a column ("which of these took
+three weeks?") rather than across a row. Below 720px the board, the close time
+and the elapsed figure fold into the task cell's subline and a sort menu
+replaces the column headers, so a phone gets the whole row rather than a table
+scrolled sideways past the figure it came for.
+
+**Archived boards stay in the log.** Archiving puts a board away; it does not
+un-finish the work on it. Those rows are marked "archived" rather than dropped —
+a history that quietly loses entries is a history you cannot use. This is
+deliberately *not* the Planner's rule (§6.3), which excludes archived boards
+because a schedule is about what is ahead.
+
+**Elapsed time is `createdAt` → `completedAt`**, and the summary above the table
+reports the **median**, not the mean: one task that sat open for a year would
+otherwise report a typical week as a typical month. Punctuality is counted over
+the tasks that carried a due date and names that denominator, because "no
+deadline" is not "on time".
+
+**Reopen is here too**, and it goes through the same `completeTaskSpec` path the
+task row's checkbox uses — including §7.3's rule that an un-completed task lands
+at the *end* of its board's active list rather than back where it was. Two
+places that each decide for themselves what un-completing means is how they
+drift.
+
+**Out of scope, deliberately:** a cross-context log (Personal and Work stay
+separate everywhere else, and this is not the screen to break that), export, and
+any per-day "productivity" chart — the four figures at the top are as far as
+this goes toward telling the user how they are doing.

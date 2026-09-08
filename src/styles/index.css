@@ -568,9 +568,11 @@
 
     .app-header-segmented {
       justify-self: center;
-      /* Three segments now, and the longest is "Blockers": 240px was sized for
-         two and truncated the labels. */
-      min-width: 320px;
+      /* Four segments now — Boards · Blockers · Planner · Closed — and the
+         longest is still "Blockers". 320px was sized for three and squeezed
+         them; the segments truncate rather than wrap, so the width is what
+         keeps the labels whole. */
+      min-width: 400px;
     }
   }
 
@@ -714,5 +716,256 @@
     );
     transform: translateX(-100%);
     animation: cairn-shimmer 1400ms linear infinite;
+  }
+
+  /* --- the Closed log (screens/Closed.tsx) --------------------------------- */
+
+  /* The four figures above the table. Two columns on a phone rather than four
+     squeezed ones: the labels are words, not glyphs, and a 4-up row at 375px
+     wraps every one of them onto two lines. */
+  .closed-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+
+  .closed-figure {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  @media (min-width: 720px) {
+    .closed-summary {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: var(--space-3);
+    }
+  }
+
+  /* Search and range stack on a phone and sit on one line once there is room
+     for both — the range control keeps its own width rather than shrinking the
+     search field into a box you cannot read a task name in. */
+  .closed-toolbar {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  @media (min-width: 720px) {
+    .closed-toolbar {
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--space-3);
+    }
+  }
+
+  .closed-toolbar-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  /* The range control sizes itself: three segments whose labels are words, and
+     a track that shrinks to the search field's leftovers truncates all three
+     into "30 da…". */
+  .closed-toolbar-controls > [role='radiogroup'] {
+    flex: 1;
+    min-width: 264px;
+  }
+
+  /* Sorting on a phone. Above the table's breakpoint the column headers do this
+     job, so the menu is not merely hidden there — it is not offered twice. */
+  .closed-sort-menu {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  @media (min-width: 720px) {
+    .closed-sort-menu {
+      display: none;
+    }
+  }
+
+  /* The search field wears the same recessed well as the app's inputs; the
+     glyph sits inside it rather than above a label, because the placeholder
+     already says what it is. */
+  .closed-search {
+    position: relative;
+    display: block;
+  }
+
+  .closed-search-icon {
+    position: absolute;
+    top: 50%;
+    left: var(--space-3);
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+
+  .closed-search-input {
+    width: 100%;
+    height: var(--button-height);
+    padding-left: calc(var(--space-3) * 2 + 18px);
+    padding-right: var(--space-3);
+    background-color: var(--surface-2);
+    border: var(--hairline-width) solid transparent;
+    border-radius: var(--radius-control);
+  }
+
+  .closed-search-input::placeholder {
+    color: var(--text-tertiary);
+  }
+
+  /* The clear affordance a `type="search"` draws in WebKit is a grey X that
+     sits at a different contrast from everything around it. */
+  .closed-search-input::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* A table is the one piece of content in the app that can legitimately be
+     wider than the viewport, so it gets its own scroll box; the page still
+     never scrolls sideways. */
+  .closed-table-wrap {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    background-color: var(--surface);
+    border: var(--hairline-width) solid var(--hairline);
+    border-radius: var(--radius-card);
+  }
+
+  .closed-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .closed-table th,
+  .closed-table td {
+    padding: var(--space-3) var(--space-4);
+    text-align: left;
+    vertical-align: middle;
+  }
+
+  /* Hairlines between rows only — no outer border and no vertical rules. The
+     card around the table already draws its edge. */
+  .closed-table tbody tr + tr {
+    border-top: var(--hairline-width) solid var(--hairline);
+  }
+
+  .closed-table thead tr {
+    border-bottom: var(--hairline-width) solid var(--hairline);
+  }
+
+  .closed-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    width: 100%;
+    min-height: var(--tap-target);
+    text-transform: uppercase;
+  }
+
+  .closed-sort-arrow {
+    transition:
+      opacity 150ms var(--ease-out),
+      transform 200ms var(--ease-out);
+  }
+
+  .closed-row {
+    cursor: pointer;
+    transition: background-color 120ms var(--ease-out);
+  }
+
+  /* §8.5 gates hover behind a real pointer; the row lifts its background, not
+     its geometry, because a table row that moves drags four cells with it. */
+  @media (hover: hover) and (pointer: fine) {
+    .closed-row:hover {
+      background-color: var(--surface-2);
+    }
+  }
+
+  .closed-name {
+    display: block;
+    font-weight: 500;
+  }
+
+  .closed-board {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  /* Numbers read down the column, so they are right-aligned and never wrap.
+     `tabular-nums` is already global (§8.3). */
+  .closed-num {
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .closed-col-action {
+    width: var(--tap-target);
+    text-align: right;
+  }
+
+  .closed-reopen {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--tap-target);
+    height: var(--tap-target);
+    opacity: 0;
+    transition: opacity 150ms var(--ease-out);
+  }
+
+  /* The reopen button is an affordance, not a decoration: it is always there
+     for touch and for the keyboard, and only *hides* where a pointer can
+     summon it back. */
+  @media (hover: hover) and (pointer: fine) {
+    .closed-row:hover .closed-reopen,
+    .closed-reopen:focus-visible {
+      opacity: 1;
+    }
+  }
+
+  @media not all and (hover: hover) {
+    .closed-reopen {
+      opacity: 1;
+    }
+  }
+
+  .closed-subline {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-1);
+  }
+
+  .closed-punctual-standalone {
+    margin-left: var(--space-2);
+  }
+
+  /* Narrow: board, close time and elapsed all fold into the task cell's
+     subline, so the table fits the viewport instead of scrolling the figures
+     the reader came for off the right edge. Wide: each gets its column back and
+     the subline goes away, so nothing is printed twice. */
+  .closed-col-board,
+  .closed-col-when,
+  .closed-col-took {
+    display: none;
+  }
+
+  @media (min-width: 720px) {
+    .closed-col-board,
+    .closed-col-when,
+    .closed-col-took {
+      display: table-cell;
+    }
+
+    .closed-col-board {
+      max-width: 14rem;
+    }
+
+    .closed-subline {
+      display: none;
+    }
   }
 }

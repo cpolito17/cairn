@@ -1,5 +1,5 @@
 /**
- * The router. History API, six routes, three views, no dependency.
+ * The router. History API, seven routes, four views, no dependency.
  *
  * The History API rather than a piece of component state is the whole point:
  * the browser's back and forward buttons have to work, and a hard reload on
@@ -10,8 +10,8 @@
  * whatever the path — which is what lets the user land back where they were
  * after unlocking (§6.1) instead of at `/login`.
  *
- * **Routes and views are not the same thing** (V2 §4.1). There are six routes
- * and three views, because `/board/:id` and `/archived` sit *under* Boards
+ * **Routes and views are not the same thing** (V2 §4.1). There are seven routes
+ * and four views, because `/board/:id` and `/archived` sit *under* Boards
  * rather than beside it: they are places within the Boards view, so the header
  * selector stays on Boards there rather than clearing. `viewOf` is that
  * mapping, and it lives here — next to `parseRoute` — because the alternative
@@ -25,12 +25,13 @@ export type Route =
   | { name: 'home' }
   | { name: 'board'; id: string }
   | { name: 'archived' }
+  | { name: 'closed' }
   | { name: 'blockers' }
   | { name: 'planner' }
   | { name: 'notFound'; path: string };
 
 /** What the header's segmented control switches between (V2 §4.1). */
-export const VIEWS = ['boards', 'blockers', 'planner'] as const;
+export const VIEWS = ['boards', 'blockers', 'planner', 'closed'] as const;
 
 export type View = (typeof VIEWS)[number];
 
@@ -38,6 +39,7 @@ export function parseRoute(pathname: string): Route {
   const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
   if (normalized === '/' || normalized === '/demo') return { name: 'home' };
   if (normalized === '/archived') return { name: 'archived' };
+  if (normalized === '/closed') return { name: 'closed' };
   if (normalized === '/blockers') return { name: 'blockers' };
   if (normalized === '/planner') return { name: 'planner' };
 
@@ -65,6 +67,8 @@ export function viewOf(route: Route): View | null {
       return 'blockers';
     case 'planner':
       return 'planner';
+    case 'closed':
+      return 'closed';
     case 'notFound':
       return null;
   }
@@ -79,6 +83,7 @@ export const VIEW_ROOTS: Record<View, string> = {
   boards: '/',
   blockers: '/blockers',
   planner: '/planner',
+  closed: '/closed',
 };
 
 export function boardPath(id: string): string {

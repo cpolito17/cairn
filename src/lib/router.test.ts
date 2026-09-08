@@ -11,10 +11,11 @@ import { describe, expect, it } from 'vitest';
 import { parseRoute, VIEW_ROOTS, VIEWS, viewOf } from './router';
 
 describe('parseRoute', () => {
-  it('reads the three view roots', () => {
+  it('reads the four view roots', () => {
     expect(parseRoute('/')).toEqual({ name: 'home' });
     expect(parseRoute('/blockers')).toEqual({ name: 'blockers' });
     expect(parseRoute('/planner')).toEqual({ name: 'planner' });
+    expect(parseRoute('/closed')).toEqual({ name: 'closed' });
   });
 
   it('treats the public demo entry as the boards home', () => {
@@ -47,6 +48,13 @@ describe('viewOf', () => {
     expect(viewOf({ name: 'home' })).toBe('boards');
     expect(viewOf({ name: 'blockers' })).toBe('blockers');
     expect(viewOf({ name: 'planner' })).toBe('planner');
+    expect(viewOf({ name: 'closed' })).toBe('closed');
+  });
+
+  it('keeps Closed a view of its own rather than a place under Boards', () => {
+    // `/closed` reads across every board, so descending into it from Boards
+    // would put a back affordance on a screen the user never descended into.
+    expect(viewOf({ name: 'closed' })).not.toBe('boards');
   });
 
   it('selects nothing on a path the app does not have', () => {

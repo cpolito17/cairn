@@ -21,6 +21,7 @@
  */
 
 import { create } from 'zustand';
+import { closedRows, type ClosedRow } from '../../shared/closed';
 import { blockedBy, lookupOf } from '../../shared/dependencies';
 import { boardProgress, type BoardProgress } from '../../shared/progress';
 import { midpoint } from '../../shared/order';
@@ -481,6 +482,18 @@ export const selectBlockedBy = memoized((data: Data, taskId: string): Task[] => 
   return task ? blockedBy(task, selectTaskLookup(data, null)) : [];
 });
 
+/**
+ * Every completed task in a context, most recently closed first — the Closed
+ * log (`shared/closed.ts`).
+ *
+ * Memoized on the entity slice and keyed only on the context, so the screen's
+ * own search box and column sort re-filter a list that was built once, rather
+ * than walking every task in the workspace on each keystroke.
+ */
+export const selectClosed = memoized((data: Data, context: Context): ClosedRow[] =>
+  closedRows(Object.values(data.boards), Object.values(data.tasks), context),
+);
+
 /** Difficulty-weighted progress for a board, from `shared/progress.ts`. */
 export const selectBoardProgress = memoized((data: Data, boardId: string): BoardProgress =>
   boardProgress(Object.values(data.tasks).filter((task) => task.boardId === boardId)),
@@ -628,6 +641,9 @@ export const useUpNext = (context: Context): Task[] =>
 
 export const useOverdue = (context: Context): Task[] =>
   useStore((state) => selectOverdue(state, context));
+
+export const useClosed = (context: Context): ClosedRow[] =>
+  useStore((state) => selectClosed(state, context));
 
 /** How many incomplete tasks are waiting on this one. */
 export const useBlockingCount = (id: string): number =>
