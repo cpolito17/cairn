@@ -118,8 +118,8 @@ function collate(a: string, b: string): number {
 }
 
 /**
- * The rows matching a free-text query and, optionally, closed at or after
- * `since`.
+ * The rows matching a free-text query, a board, and a cutoff — any of which may
+ * be "no opinion" (an empty query, a null board, a null `since`).
  *
  * The query matches the task name **and** the board name: typing a board's name
  * into the one search box on the screen and getting nothing back is the kind of
@@ -129,9 +129,11 @@ export function filterClosed(
   rows: ClosedRow[],
   query: string,
   since: number | null,
+  boardId: string | null = null,
 ): ClosedRow[] {
   const needle = query.trim().toLocaleLowerCase();
   return rows.filter((row) => {
+    if (boardId !== null && row.board.id !== boardId) return false;
     if (since !== null && row.closedAt < since) return false;
     if (needle === '') return true;
     return (
@@ -139,6 +141,33 @@ export function filterClosed(
       row.board.name.toLocaleLowerCase().includes(needle)
     );
   });
+}
+
+/** A board that has closed work, and how much of it. */
+export interface BoardFacet {
+  board: Board;
+  count: number;
+}
+
+/**
+ * The boards the filter chips offer: only those with something closed, busiest
+ * first.
+ *
+ * Busiest first rather than board order, because this row is a filter and not a
+ * second copy of the Boards screen — the chip you reach for is nearly always
+ * the board you finish things on. Ties fall back to the name so the row does
+ * not reshuffle between two renders of the same data.
+ */
+export function boardFacets(rows: ClosedRow[]): BoardFacet[] {
+  const counts = new Map<string, BoardFacet>();
+  for (const row of rows) {
+    const facet = counts.get(row.board.id);
+    if (facet) facet.count += 1;
+    else counts.set(row.board.id, { board: row.board, count: 1 });
+  }
+  return [...counts.values()].sort(
+    (a, b) => b.count - a.count || collate(a.board.name, b.board.name),
+  );
 }
 
 /** The figures above the table: how many, how fast, how punctual. */

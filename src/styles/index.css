@@ -821,6 +821,36 @@
     appearance: none;
   }
 
+  /* The board filter. One row that scrolls sideways on a phone rather than
+     wrapping to four lines of chips above a table nobody can see yet. */
+  .closed-boards {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    /* The focus ring on the first and last chip is drawn outside the chip, so
+       the scroll box needs the room or it clips it. */
+    padding: 2px;
+    margin-inline: -2px;
+    scrollbar-width: none;
+  }
+
+  .closed-boards::-webkit-scrollbar {
+    display: none;
+  }
+
+  .closed-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex: 0 0 auto;
+    max-width: 16rem;
+    height: var(--tap-target);
+    padding-inline: var(--space-3);
+    font-weight: 600;
+  }
+
   /* A table is the one piece of content in the app that can legitimately be
      wider than the viewport, so it gets its own scroll box; the page still
      never scrolls sideways. */
@@ -895,13 +925,19 @@
   }
 
   /* Numbers read down the column, so they are right-aligned and never wrap.
-     `tabular-nums` is already global (§8.3). */
-  .closed-num {
+     `tabular-nums` is already global (§8.3).
+
+     Qualified by `.closed-table` on purpose: the `th, td` rule above is two
+     classes deep, so a bare `.closed-num` loses to it and the column silently
+     stays left-aligned — with the header's own flex-end alignment still
+     applying, which is exactly how a header ends up offset from the figures
+     under it. */
+  .closed-table .closed-num {
     text-align: right;
     white-space: nowrap;
   }
 
-  .closed-col-action {
+  .closed-table .closed-col-action {
     width: var(--tap-target);
     text-align: right;
   }
@@ -932,10 +968,16 @@
     }
   }
 
+  /* The folded columns wrap rather than holding one long line: an unwrapped
+     subline sets the task cell's min-content width, which a table cannot go
+     below — so the widest row would push the whole table wider than the phone
+     and take the page's horizontal scroll with it. */
   .closed-subline {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-2);
+    /* Wider than the usual chip gap because the gap *is* the separator here. */
+    gap: 2px var(--space-3);
     margin-top: var(--space-1);
   }
 

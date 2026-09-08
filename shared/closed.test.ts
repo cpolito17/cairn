@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closedRows, closedSummary, filterClosed, sortClosed } from './closed';
+import { boardFacets, closedRows, closedSummary, filterClosed, sortClosed } from './closed';
 import type { Board, Task } from './types';
 
 const DAY = 86_400_000;
@@ -193,6 +193,57 @@ describe('filterClosed', () => {
 
   it('drops anything closed before the cutoff', () => {
     expect(names(filterClosed(rows, '', NOW - 7 * DAY))).toEqual(['Call the roofer']);
+  });
+
+  it('keeps one board when given one, and every board when given none', () => {
+    expect(names(filterClosed(rows, '', null, 'b2'))).toEqual(['File the return']);
+    expect(filterClosed(rows, '', null, null)).toHaveLength(2);
+  });
+
+  it('applies the board, the cutoff and the query together', () => {
+    // The board matches and the query matches, but the row is outside the
+    // window — every clause has to hold, not any of them.
+    expect(filterClosed(rows, 'return', NOW - 7 * DAY, 'b2')).toEqual([]);
+    expect(names(filterClosed(rows, 'roofer', NOW - 7 * DAY, 'b1'))).toEqual([
+      'Call the roofer',
+    ]);
+  });
+});
+
+describe('boardFacets', () => {
+  it('offers only boards with closed work, busiest first', () => {
+    const rows = closedRows(
+      [
+        board({ id: 'quiet', name: 'Quiet' }),
+        board({ id: 'busy', name: 'Busy' }),
+        board({ id: 'empty', name: 'Empty' }),
+      ],
+      [
+        task({ boardId: 'quiet', completedAt: NOW }),
+        task({ boardId: 'busy', completedAt: NOW }),
+        task({ boardId: 'busy', completedAt: NOW - DAY }),
+        task({ boardId: 'empty' }),
+      ],
+      'personal',
+    );
+
+    expect(boardFacets(rows).map((facet) => [facet.board.id, facet.count])).toEqual([
+      ['busy', 2],
+      ['quiet', 1],
+    ]);
+  });
+
+  it('breaks a tie on the board name rather than on insertion order', () => {
+    const rows = closedRows(
+      [board({ id: 'z', name: 'Zebra' }), board({ id: 'a', name: 'apple' })],
+      [task({ boardId: 'z', completedAt: NOW }), task({ boardId: 'a', completedAt: NOW })],
+      'personal',
+    );
+    expect(boardFacets(rows).map((facet) => facet.board.id)).toEqual(['a', 'z']);
+  });
+
+  it('has nothing to offer over an empty log', () => {
+    expect(boardFacets([])).toEqual([]);
   });
 });
 

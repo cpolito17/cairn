@@ -31,9 +31,11 @@ import { boardPath, navigate } from '../lib/router';
 import { completeTaskSpec, endOfBoard, useClosed, useStore } from '../lib/store';
 import { toast } from '../lib/toasts';
 import {
+  boardFacets,
   closedSummary,
   filterClosed,
   sortClosed,
+  type BoardFacet,
   type ClosedRow,
   type ClosedSort,
   type SortDirection,
@@ -59,6 +61,8 @@ export function Closed() {
 
   const [query, setQuery] = useState('');
   const [range, setRange] = useState<Range>('all');
+  /** The board chip in effect, or null for "All boards". */
+  const [boardId, setBoardId] = useState<string | null>(null);
   const [sort, setSort] = useState<ClosedSort>('closed');
   const [direction, setDirection] = useState<SortDirection>('desc');
   const [shown, setShown] = useState(PAGE);
@@ -68,17 +72,33 @@ export function Closed() {
   // own `Date.now()` is a row that can disagree with the one above it.
   const now = Date.now();
 
+  const facets = useMemo(() => boardFacets(rows), [rows]);
+
+  /**
+   * The rows the summary describes: the chosen board, and nothing else.
+   *
+   * Deliberately not the table's full filter. "Last 7 days" inside a 7-day
+   * range would be a figure that always equals the count above it, and a
+   * summary that moves on every keystroke is a summary nobody can read — but a
+   * board filter is a change of *subject*, and the figures have to follow it or
+   * they are describing a table the user is no longer looking at.
+   */
+  const scope = useMemo(
+    () => (boardId === null ? rows : filterClosed(rows, '', null, boardId)),
+    [rows, boardId],
+  );
+
   const visible = useMemo(() => {
     const since = range === 'all' ? null : now - Number(range) * DAY_MS;
-    return sortClosed(filterClosed(rows, query, since), sort, direction);
+    return sortClosed(filterClosed(rows, query, since, boardId), sort, direction);
     // `now` is deliberately not a dependency: it changes every render, and the
     // cutoff it feeds is a day-scale boundary that re-deriving on each keystroke
     // would not move. The list is rebuilt whenever anything the user changed
     // changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, query, range, sort, direction]);
+  }, [rows, query, range, boardId, sort, direction]);
 
-  const summary = useMemo(() => closedSummary(rows, now - 7 * DAY_MS), [rows, now]);
+  const summary = useMemo(() => closedSummary(scope, now - 7 * DAY_MS), [scope, now]);
 
   /** A press on a column header: same column flips it, a new column starts at
    *  the order that column is most useful in. */
@@ -93,9 +113,10 @@ export function Closed() {
     setDirection(next === 'closed' || next === 'elapsed' ? 'desc' : 'asc');
   }
 
-  function reset(nextQuery: string, nextRange: Range) {
+  function reset(nextQuery: string, nextRange: Range, nextBoard: string | null = boardId) {
     setQuery(nextQuery);
     setRange(nextRange);
+    setBoardId(nextBoard);
     // A narrowed list starts at the top of its own first page; carrying a
     // "show more" from the previous filter shows a page count that no longer
     // describes anything the user asked for.
@@ -156,6 +177,17 @@ export function Closed() {
               }} />
             </div>
           </div>
+
+          {/* One chip per board with closed work, plus "All". It is a filter,
+              so it only offers boards that would return something. */}
+          {facets.length > 1 && (
+            <BoardFilter
+              facets={facets}
+              total={rows.length}
+              selected={boardId}
+              onSelect={(next) => reset(query, range, next)}
+            />
+          )}
 
           {visible.length === 0 ? (
             <EmptyLine>No closed task matches that.</EmptyLine>
@@ -316,6 +348,20 @@ function ColumnHeader({
   children: string;
 }) {
   const active = column === sort;
+  // One arrow, rotated — the same element in both directions, so the flip is a
+  // 180° turn rather than one glyph swapped for another.
+  const arrow = (
+    <ArrowUp
+      size={12}
+      aria-hidden="true"
+      className="closed-sort-arrow"
+      style={{
+        opacity: active ? 1 : 0,
+        transform: `rotate(${active && direction === 'desc' ? 180 : 0}deg)`,
+      }}
+    />
+  );
+
   return (
     <th
       scope="col"
@@ -331,20 +377,94 @@ function ColumnHeader({
         className="pressable closed-sort text-section text-text-secondary"
         style={{ justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}
       >
+        {/* The arrow leads on a right-aligned column and trails on a
+            left-aligned one, so the *label* is what sits flush with the
+            column's own edge. Trailing it on the right would hold 16px of
+            space open on the side the figures align to — visible or not, since
+            an inactive arrow is transparent rather than absent — and the header
+            would read as offset from the column beneath it. */}
+        {align === 'right' && arrow}
         <span style={{ textTransform: 'uppercase' }}>{children}</span>
-        {/* One arrow, rotated — the same element in both directions, so the
-            flip is a 180° turn rather than one glyph swapped for another. */}
-        <ArrowUp
-          size={12}
-          aria-hidden="true"
-          className="closed-sort-arrow"
-          style={{
-            opacity: active ? 1 : 0,
-            transform: `rotate(${active && direction === 'desc' ? 180 : 0}deg)`,
-          }}
-        />
+        {align === 'left' && arrow}
       </button>
     </th>
+  );
+}
+
+function BoardFilter({
+  facets,
+  total,
+  selected,
+  onSelect,
+}: {
+  facets: BoardFacet[];
+  total: number;
+  selected: string | null;
+  onSelect(boardId: string | null): void;
+}) {
+  return (
+    <div
+      className="closed-boards mt-3"
+      role="group"
+      aria-label="Filter closed tasks by board"
+    >
+      <FilterChip
+        selected={selected === null}
+        count={total}
+        onClick={() => onSelect(null)}
+        label="All boards"
+      />
+      {facets.map((facet) => (
+        <FilterChip
+          key={facet.board.id}
+          selected={selected === facet.board.id}
+          count={facet.count}
+          accent={boardAccentColor(facet.board.accent)}
+          onClick={() => onSelect(selected === facet.board.id ? null : facet.board.id)}
+          label={facet.board.name}
+        />
+      ))}
+    </div>
+  );
+}
+
+function FilterChip({
+  selected,
+  count,
+  accent,
+  label,
+  onClick,
+}: {
+  selected: boolean;
+  count: number;
+  accent?: string;
+  label: string;
+  onClick(): void;
+}) {
+  return (
+    <button
+      type="button"
+      // A filter is a state the control is *in*, not a thing it navigates to,
+      // which is what `aria-pressed` says and a plain button does not.
+      aria-pressed={selected}
+      onClick={onClick}
+      className={[
+        'pressable closed-chip rounded-pill text-meta',
+        selected ? 'bg-accent-tint text-accent' : 'bg-surface-2 text-text-secondary',
+      ].join(' ')}
+    >
+      {accent && (
+        <span
+          aria-hidden="true"
+          className="block shrink-0 rounded-pill"
+          style={{ width: '8px', height: '8px', backgroundColor: accent }}
+        />
+      )}
+      <span className="truncate">{label}</span>
+      {/* The count is what makes the row a summary as well as a filter: it says
+          which boards the work actually came from before anything is pressed. */}
+      <span className={selected ? '' : 'text-text-tertiary'}>{count}</span>
+    </button>
   );
 }
 
@@ -421,10 +541,11 @@ function Row({ row, now }: { row: ClosedRow; now: number }) {
             this line rather than pushing the table into a sideways scroll on a
             phone, where the figure you came for would be the one off-screen. */}
         <span className="closed-subline text-meta text-text-tertiary">
+          {/* Spacing separates these, not "·" characters: the line wraps on a
+              narrow phone, and a separator that lands at the end of a wrapped
+              line dangles with nothing after it. */}
           <BoardTag board={board} archived={archived} />
-          <span aria-hidden="true">·</span>
           <span className="whitespace-nowrap">{formatClosed(row.closedAt, now)}</span>
-          <span aria-hidden="true">·</span>
           <span className="whitespace-nowrap">{formatElapsed(row.elapsedDays)}</span>
           <Punctuality row={row} />
         </span>

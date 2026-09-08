@@ -881,6 +881,14 @@ and the elapsed figure fold into the task cell's subline and a sort menu
 replaces the column headers, so a phone gets the whole row rather than a table
 scrolled sideways past the figure it came for.
 
+**A board filter, as a chip row.** One chip per board that has closed work,
+busiest first, with its count — so the row says where the work came from before
+anything is pressed — plus "All boards". Pressing the selected chip again
+clears it. The four figures above the table follow the chip, because a board
+filter changes the *subject*; they deliberately do **not** follow the search box
+or the range, where a summary that moved on every keystroke would be a summary
+nobody can read.
+
 **Archived boards stay in the log.** Archiving puts a board away; it does not
 un-finish the work on it. Those rows are marked "archived" rather than dropped —
 a history that quietly loses entries is a history you cannot use. This is
