@@ -28,6 +28,7 @@ import { subscribeToConnectivity, useStore } from './lib/store';
 import { useToasts } from './lib/toasts';
 import { Archived } from './screens/Archived';
 import { Blockers } from './screens/Blockers';
+import { Closed } from './screens/Closed';
 import { Board } from './screens/Board';
 import { ContextHome } from './screens/ContextHome';
 import { Login } from './screens/Login';
@@ -131,6 +132,8 @@ function Routes() {
       return <Board id={route.id} />;
     case 'archived':
       return <Archived />;
+    case 'closed':
+      return <Closed />;
     case 'blockers':
       return <Blockers />;
     case 'planner':

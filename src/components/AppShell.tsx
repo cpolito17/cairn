@@ -8,8 +8,8 @@
  *
  * Contents: the wordmark, or a compact back affordance once the user is a level
  * deep, with the **active context named beneath either of them** · the
- * Boards/Blockers/Planner segmented control, centered · the gear, which opens
- * the settings sheet. On narrow viewports the segmented control drops to a
+ * Boards/Blockers/Planner/Closed segmented control, centered · the gear, which
+ * opens the settings sheet. On narrow viewports the segmented control drops to a
  * full-width second line rather than compressing — one control, moved by the
  * grid in `index.css`, not two instances fighting over the same `layoutId`.
  *
@@ -48,6 +48,7 @@ const VIEW_OPTIONS: { value: View; label: string }[] = [
   { value: 'boards', label: 'Boards' },
   { value: 'blockers', label: 'Blockers' },
   { value: 'planner', label: 'Planner' },
+  { value: 'closed', label: 'Closed' },
 ];
 
 export function AppShell({ children, onSignedOut }: { children: ReactNode; onSignedOut(): void }) {
@@ -80,7 +81,7 @@ export function AppShell({ children, onSignedOut }: { children: ReactNode; onSig
   /**
    * Null only on `notFound`, where the selector is hidden rather than showing
    * an arbitrary segment selected — a path that is not part of the app is not
-   * one of the three views, and claiming otherwise is worse than a gap.
+   * one of the four views, and claiming otherwise is worse than a gap.
    */
   const view = viewOf(route);
 
